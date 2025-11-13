@@ -4,7 +4,7 @@ These are LlamaController-specific endpoints for model management.
 """
 
 import logging
-from typing import List
+from typing import List, Union
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..core.lifecycle import ModelLifecycleManager, LifecycleError
@@ -17,7 +17,14 @@ from ..models.api import (
     ListModelsResponse,
     ServerLogsResponse,
 )
-from ..models.lifecycle import LoadModelResponse, UnloadModelResponse, SwitchModelResponse
+from ..models.lifecycle import (
+    LoadModelResponse, 
+    UnloadModelResponse, 
+    UnloadModelRequest,
+    SwitchModelResponse,
+    AllGpuStatus,
+    GpuInstanceStatus,
+)
 from .dependencies import get_lifecycle_manager
 from ..auth.dependencies import get_current_user
 from ..db.models import User
@@ -90,7 +97,7 @@ async def get_model_status(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get the status of the currently loaded model.
+    Get the status of the currently loaded model (backward compatible).
     
     Returns:
         ModelStatusResponse with current model status
@@ -122,6 +129,71 @@ async def get_model_status(
             detail=f"Failed to get model status: {str(e)}"
         )
 
+@router.get("/gpu/status", response_model=AllGpuStatus)
+async def get_all_gpu_statuses(
+    lifecycle: ModelLifecycleManager = Depends(get_lifecycle_manager),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the status of all GPUs.
+    
+    Returns:
+        AllGpuStatus with all GPU statuses
+    """
+    try:
+        return await lifecycle.get_all_gpu_statuses()
+    except Exception as e:
+        logger.error(f"Failed to get GPU statuses: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get GPU statuses: {str(e)}"
+        )
+
+@router.get("/gpu/{gpu_id}/status", response_model=GpuInstanceStatus)
+async def get_gpu_status(
+    gpu_id: Union[int, str],
+    lifecycle: ModelLifecycleManager = Depends(get_lifecycle_manager),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get the status of a specific GPU.
+    
+    Args:
+        gpu_id: GPU ID (0, 1, or "both")
+    
+    Returns:
+        GpuInstanceStatus or 404 if no model loaded
+    """
+    try:
+        # Convert path parameter to appropriate type
+        if gpu_id == "both":
+            gpu_param = "both"
+        else:
+            gpu_param = int(gpu_id)
+        
+        status = await lifecycle.get_gpu_status(gpu_param)
+        
+        if status is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No model loaded on GPU {gpu_id}"
+            )
+        
+        return status
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid GPU ID: {gpu_id}. Must be 0, 1, or 'both'"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get GPU status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get GPU status: {str(e)}"
+        )
+
 @router.post("/models/load", response_model=LoadModelResponse)
 async def load_model(
     request: LoadModelRequest,
@@ -129,17 +201,17 @@ async def load_model(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Load a model by ID.
+    Load a model by ID on specified GPU.
     
     Args:
-        request: LoadModelRequest with model_id
+        request: LoadModelRequest with model_id and gpu_id
         
     Returns:
         LoadModelResponse with operation result
     """
     try:
-        logger.info(f"API request to load model: {request.model_id}")
-        result = await lifecycle.load_model(request.model_id)
+        logger.info(f"API request to load model: {request.model_id} on GPU {request.gpu_id}")
+        result = await lifecycle.load_model(request.model_id, request.gpu_id)
         return result
     except LifecycleError as e:
         logger.error(f"Failed to load model: {e}")
@@ -156,18 +228,22 @@ async def load_model(
 
 @router.post("/models/unload", response_model=UnloadModelResponse)
 async def unload_model(
+    request: UnloadModelRequest,
     lifecycle: ModelLifecycleManager = Depends(get_lifecycle_manager),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Unload the currently loaded model.
+    Unload model from specified GPU.
     
+    Args:
+        request: UnloadModelRequest with gpu_id
+        
     Returns:
         UnloadModelResponse with operation result
     """
     try:
-        logger.info("API request to unload model")
-        result = await lifecycle.unload_model()
+        logger.info(f"API request to unload model from GPU {request.gpu_id}")
+        result = await lifecycle.unload_model(request.gpu_id)
         return result
     except LifecycleError as e:
         logger.error(f"Failed to unload model: {e}")
@@ -189,17 +265,17 @@ async def switch_model(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Switch to a different model.
+    Switch to a different model on specified GPU.
     
     Args:
-        request: SwitchModelRequest with new model_id
+        request: SwitchModelRequest with new model_id and gpu_id
         
     Returns:
         SwitchModelResponse with operation result
     """
     try:
-        logger.info(f"API request to switch to model: {request.model_id}")
-        result = await lifecycle.switch_model(request.model_id)
+        logger.info(f"API request to switch to model: {request.model_id} on GPU {request.gpu_id}")
+        result = await lifecycle.switch_model(request.model_id, request.gpu_id)
         return result
     except LifecycleError as e:
         logger.error(f"Failed to switch model: {e}")
@@ -216,21 +292,23 @@ async def switch_model(
 
 @router.get("/logs", response_model=ServerLogsResponse)
 async def get_server_logs(
+    gpu_id: Union[int, str] = 0,
     lines: int = 100,
     lifecycle: ModelLifecycleManager = Depends(get_lifecycle_manager),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get recent server log lines.
+    Get recent server log lines from specified GPU.
     
     Args:
+        gpu_id: GPU ID (0, 1, or "both"), default 0
         lines: Number of recent lines to return (default: 100)
         
     Returns:
         ServerLogsResponse with log lines
     """
     try:
-        log_lines = await lifecycle.get_server_logs(lines=lines)
+        log_lines = await lifecycle.get_server_logs(gpu_id=gpu_id, lines=lines)
         
         return ServerLogsResponse(
             logs=log_lines,

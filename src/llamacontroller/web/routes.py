@@ -136,6 +136,9 @@ async def dashboard(
     # Get current model status
     status_info = await lifecycle_manager.get_status()
     
+    # Get GPU statuses (for multi-GPU support)
+    gpu_statuses = await lifecycle_manager.get_all_gpu_statuses()
+    
     # Get available models
     available_models = lifecycle_manager.config_manager.models.models
     
@@ -145,6 +148,7 @@ async def dashboard(
             "request": request,
             "user": user,
             "status": status_info,
+            "gpu_statuses": gpu_statuses,
             "available_models": available_models,
             "active_page": "dashboard"
         }
@@ -155,17 +159,17 @@ async def dashboard(
 async def load_model_ui(
     request: Request,
     model_id: str = Form(...),
+    gpu_id: str = Form("0"),  # GPU ID from form (comma-separated: "0", "1", or "0,1")
     user: User = Depends(get_current_user_from_session),
     lifecycle_manager: ModelLifecycleManager = Depends(get_lifecycle_manager)
 ):
-    """Load a model (HTMX endpoint). Uses switch_model to handle all cases safely."""
+    """Load a model on specified GPU(s) (HTMX endpoint)."""
     try:
-        # Always use switch_model - it handles both loading and switching intelligently
-        # If no model is loaded, it will load the new one
-        # If a model is loaded, it will switch to the new one
-        result = await lifecycle_manager.switch_model(model_id)
+        # Load model on specified GPU
+        result = await lifecycle_manager.load_model(model_id, gpu_id)
         
-        # Get updated status and available models
+        # Get updated GPU statuses and available models
+        gpu_statuses = await lifecycle_manager.get_all_gpu_statuses()
         status_info = await lifecycle_manager.get_status()
         available_models = lifecycle_manager.config_manager.models.models
         
@@ -174,23 +178,26 @@ async def load_model_ui(
             {
                 "request": request,
                 "status": status_info,
+                "gpu_statuses": gpu_statuses,
                 "available_models": available_models,
                 "message": result.message,
                 "message_type": "success"
             }
         )
     except Exception as e:
+        gpu_statuses = await lifecycle_manager.get_all_gpu_statuses()
         status_info = await lifecycle_manager.get_status()
         available_models = lifecycle_manager.config_manager.models.models
         
-        # Get server logs to help diagnose the error
-        server_logs = lifecycle_manager.adapter.get_logs(lines=100) if lifecycle_manager.adapter else []
+        # Get server logs to help diagnose the error (if any adapter exists)
+        server_logs = []
         
         return templates.TemplateResponse(
             "partials/dashboard_content.html",
             {
                 "request": request,
                 "status": status_info,
+                "gpu_statuses": gpu_statuses,
                 "available_models": available_models,
                 "message": f"加载模型失败: {str(e)}",
                 "message_type": "error",
@@ -202,12 +209,16 @@ async def load_model_ui(
 @router.post("/dashboard/unload-model", include_in_schema=False)
 async def unload_model_ui(
     request: Request,
+    gpu_id: str = Form(...),  # GPU ID to unload from
     user: User = Depends(get_current_user_from_session),
     lifecycle_manager: ModelLifecycleManager = Depends(get_lifecycle_manager)
 ):
-    """Unload current model (HTMX endpoint)."""
+    """Unload model from specified GPU(s) (HTMX endpoint)."""
     try:
-        await lifecycle_manager.unload_model()
+        await lifecycle_manager.unload_model(gpu_id)
+        
+        # Get updated GPU statuses and available models
+        gpu_statuses = await lifecycle_manager.get_all_gpu_statuses()
         status_info = await lifecycle_manager.get_status()
         available_models = lifecycle_manager.config_manager.models.models
         
@@ -216,12 +227,14 @@ async def unload_model_ui(
             {
                 "request": request,
                 "status": status_info,
+                "gpu_statuses": gpu_statuses,
                 "available_models": available_models,
-                "message": "Successfully unloaded model",
+                "message": f"成功从 GPU {gpu_id} 卸载模型",
                 "message_type": "success"
             }
         )
     except Exception as e:
+        gpu_statuses = await lifecycle_manager.get_all_gpu_statuses()
         status_info = await lifecycle_manager.get_status()
         available_models = lifecycle_manager.config_manager.models.models
         return templates.TemplateResponse(
@@ -229,8 +242,9 @@ async def unload_model_ui(
             {
                 "request": request,
                 "status": status_info,
+                "gpu_statuses": gpu_statuses,
                 "available_models": available_models,
-                "message": f"Failed to unload model: {str(e)}",
+                "message": f"从 GPU {gpu_id} 卸载模型失败: {str(e)}",
                 "message_type": "error"
             }
         )

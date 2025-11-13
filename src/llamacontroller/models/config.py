@@ -2,17 +2,24 @@
 Pydantic models for configuration validation.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union, Literal
 from pydantic import BaseModel, Field, field_validator
 from pathlib import Path
 
+class GpuPortsConfig(BaseModel):
+    """GPU port mapping configuration."""
+    
+    gpu0: int = Field(default=8081, ge=1, le=65535, description="Port for GPU 0")
+    gpu1: int = Field(default=8088, ge=1, le=65535, description="Port for GPU 1")
+    both: int = Field(default=8081, ge=1, le=65535, description="Port when using both GPUs")
 
 class LlamaCppConfig(BaseModel):
     """Configuration for llama.cpp executable."""
     
     executable_path: str = Field(..., description="Path to llama-server executable")
     default_host: str = Field(default="127.0.0.1", description="Default host for llama-server")
-    default_port: int = Field(default=8080, ge=1, le=65535, description="Default port for llama-server")
+    default_port: int = Field(default=8080, ge=1, le=65535, description="Default port for llama-server (deprecated, use gpu_ports)")
+    gpu_ports: GpuPortsConfig = Field(default_factory=GpuPortsConfig, description="Port mapping for GPU instances")
     api_key: Optional[str] = Field(
         default=None, 
         description="API key for llama-server (optional). If set, llama-server will require this key for authentication. "
@@ -42,7 +49,6 @@ class LlamaCppConfig(BaseModel):
         if v.lower() not in valid_levels:
             raise ValueError(f"Invalid log level: {v}. Must be one of {valid_levels}")
         return v.lower()
-
 
 class ModelParameters(BaseModel):
     """
@@ -140,7 +146,6 @@ class ModelParameters(BaseModel):
         
         return args
 
-
 class ModelMetadata(BaseModel):
     """Metadata about a model."""
     
@@ -150,6 +155,21 @@ class ModelMetadata(BaseModel):
     family: str = Field(default="", description="Model family (e.g., 'llama', 'mistral')")
     capabilities: List[str] = Field(default_factory=list, description="Model capabilities")
 
+class GpuConfig(BaseModel):
+    """GPU configuration for model loading."""
+    
+    mode: Literal["single", "both"] = Field(default="single", description="GPU mode: 'single' or 'both'")
+    gpu_id: int = Field(default=0, ge=0, le=1, description="GPU ID when mode is 'single' (0 or 1)")
+    
+    @field_validator("gpu_id")
+    @classmethod
+    def validate_gpu_id(cls, v: int, info) -> int:
+        """Validate GPU ID based on mode."""
+        # gpu_id is only used when mode is "single"
+        # For "both" mode, gpu_id is ignored but we still validate the range
+        if v not in [0, 1]:
+            raise ValueError("GPU ID must be 0 or 1")
+        return v
 
 class ModelConfig(BaseModel):
     """Configuration for a single model."""
@@ -157,6 +177,7 @@ class ModelConfig(BaseModel):
     id: str = Field(..., description="Unique model identifier")
     name: str = Field(..., description="Human-readable model name")
     path: str = Field(..., description="Path to GGUF model file")
+    gpu_config: Optional[GpuConfig] = Field(default=None, description="GPU configuration (optional)")
     parameters: ModelParameters = Field(default_factory=ModelParameters, description="Inference parameters")
     metadata: ModelMetadata = Field(default_factory=ModelMetadata, description="Model metadata")
     
@@ -184,7 +205,6 @@ class ModelConfig(BaseModel):
             raise ValueError("Model ID can only contain alphanumeric characters, hyphens, and underscores")
         return v
 
-
 class ModelsConfig(BaseModel):
     """Configuration for all models."""
     
@@ -211,7 +231,6 @@ class ModelsConfig(BaseModel):
             raise ValueError(f"Duplicate model IDs found: {set(duplicates)}")
         return v
 
-
 class AuthUser(BaseModel):
     """User configuration for authentication."""
     
@@ -229,7 +248,6 @@ class AuthUser(BaseModel):
             raise ValueError("Username can only contain alphanumeric characters")
         return v
 
-
 class AuthConfig(BaseModel):
     """Configuration for authentication."""
     
@@ -244,7 +262,6 @@ class AuthConfig(BaseModel):
             if user.username == username:
                 return user
         return None
-
 
 class AppConfig(BaseModel):
     """Main application configuration combining all configs."""

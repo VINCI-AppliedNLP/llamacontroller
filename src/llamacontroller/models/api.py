@@ -2,10 +2,9 @@
 Pydantic models for API request/response schemas.
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
-
 
 # Management API Models (LlamaController specific)
 
@@ -14,19 +13,18 @@ class LoadModelRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     
     model_id: str = Field(..., description="ID of the model to load")
-
+    gpu_id: Union[int, str] = Field(0, description="GPU ID (0, 1, or 'both')")
 
 class UnloadModelRequest(BaseModel):
     """Request to unload current model."""
-    pass
-
+    gpu_id: Union[int, str] = Field(..., description="GPU ID (0, 1, or 'both')")
 
 class SwitchModelRequest(BaseModel):
     """Request to switch to a different model."""
     model_config = ConfigDict(protected_namespaces=())
     
     model_id: str = Field(..., description="ID of the model to switch to")
-
+    gpu_id: Union[int, str] = Field(0, description="GPU ID (0, 1, or 'both')")
 
 class ModelInfoResponse(BaseModel):
     """Information about a model."""
@@ -38,7 +36,6 @@ class ModelInfoResponse(BaseModel):
     description: Optional[str] = None
     parameter_count: Optional[str] = None
     quantization: Optional[str] = None
-
 
 class ModelStatusResponse(BaseModel):
     """Current model status."""
@@ -55,7 +52,6 @@ class ModelStatusResponse(BaseModel):
     port: Optional[int]
     server_url: Optional[str] = Field(None, description="URL to llama-server web interface")
 
-
 class HealthCheckResponse(BaseModel):
     """Health check response."""
     healthy: bool
@@ -63,11 +59,9 @@ class HealthCheckResponse(BaseModel):
     message: str
     uptime_seconds: Optional[float]
 
-
 class ListModelsResponse(BaseModel):
     """Response listing available models."""
     models: List[ModelInfoResponse]
-
 
 class ServerLogsResponse(BaseModel):
     """Server logs response."""

@@ -4,8 +4,9 @@ Model lifecycle manager for high-level model operations.
 
 import logging
 import asyncio
-from typing import Optional, List
+from typing import Optional, List, Dict, Union
 from datetime import datetime
+from dataclasses import dataclass
 
 from .config import ConfigManager
 from .adapter import LlamaCppAdapter, AdapterError
@@ -18,6 +19,8 @@ from ..models.lifecycle import (
     SwitchModelResponse,
     ModelInfo,
     HealthCheckResponse,
+    GpuInstanceStatus,
+    AllGpuStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,12 +29,22 @@ class LifecycleError(Exception):
     """Exception raised for lifecycle management errors."""
     pass
 
+@dataclass
+class GpuInstance:
+    """单个GPU实例的状态信息"""
+    gpu_id: str  # "0", "1", "0,1", "0,1,2", etc.
+    port: int
+    adapter: LlamaCppAdapter
+    model_id: str
+    model_config: ModelConfig
+    load_time: datetime
+
 class ModelLifecycleManager:
     """
-    High-level model lifecycle management.
+    High-level model lifecycle management with multi-GPU support.
     
     Provides operations for loading, unloading, and switching models
-    while managing the underlying llama.cpp process adapter.
+    across multiple GPUs, managing separate llama.cpp process instances.
     """
     
     def __init__(self, config_manager: ConfigManager):
@@ -42,73 +55,202 @@ class ModelLifecycleManager:
             config_manager: Configuration manager instance
         """
         self.config_manager = config_manager
-        self.current_model: Optional[ModelConfig] = None
-        self.load_time: Optional[datetime] = None
+        self.gpu_instances: Dict[str, GpuInstance] = {}
         
-        # Initialize adapter with llama.cpp config
-        llama_config = config_manager.llama_cpp
-        self.adapter = LlamaCppAdapter(llama_config)
-        
-        logger.info("ModelLifecycleManager initialized")
+        logger.info("ModelLifecycleManager initialized with multi-GPU support")
     
-    async def load_model(self, model_id: str) -> LoadModelResponse:
+    def _validate_and_parse_gpu_id(self, gpu_id: Union[int, str]) -> List[int]:
         """
-        Load a model by ID.
+        验证并解析GPU ID字符串
         
         Args:
-            model_id: ID of the model to load
+            gpu_id: GPU ID (如 0, "0", "1", "0,1", "0,1,2")
             
         Returns:
-            LoadModelResponse with operation result
+            GPU ID列表 [0], [1], [0, 1], etc.
             
         Raises:
-            LifecycleError: If model loading fails
+            LifecycleError: GPU ID无效
         """
-        logger.info(f"Loading model: {model_id}")
+        # 向后兼容: 支持整数输入
+        if isinstance(gpu_id, int):
+            gpu_id = str(gpu_id)
+        
+        # 兼容旧的"both"格式
+        if gpu_id == "both":
+            logger.warning("gpu_id='both' is deprecated, use '0,1' instead")
+            gpu_id = "0,1"
         
         try:
-            # Get model configuration
+            # 解析逗号分隔的ID
+            gpu_ids = [int(x.strip()) for x in str(gpu_id).split(',')]
+            
+            # 验证范围 (当前支持0-7,为未来扩展预留)
+            for gid in gpu_ids:
+                if gid < 0 or gid > 7:
+                    raise ValueError(f"GPU ID {gid} out of range (0-7)")
+            
+            # 检查重复
+            if len(gpu_ids) != len(set(gpu_ids)):
+                raise ValueError("Duplicate GPU IDs")
+            
+            return sorted(gpu_ids)
+        except (ValueError, AttributeError) as e:
+            raise LifecycleError(f"Invalid gpu_id '{gpu_id}': {e}")
+    
+    def _normalize_gpu_id(self, gpu_id: Union[int, str]) -> str:
+        """
+        标准化GPU ID为字符串格式
+        
+        Args:
+            gpu_id: 原始GPU ID
+            
+        Returns:
+            标准化的字符串 "0", "1", "0,1", etc.
+        """
+        gpu_list = self._validate_and_parse_gpu_id(gpu_id)
+        return ','.join(str(g) for g in gpu_list)
+    
+    def _check_gpu_conflicts(self, gpu_id: Union[int, str]) -> None:
+        """
+        检查GPU冲突
+        
+        Args:
+            gpu_id: 要使用的GPU ID
+            
+        Raises:
+            LifecycleError: 存在GPU冲突
+        """
+        requested_gpus = set(self._validate_and_parse_gpu_id(gpu_id))
+        
+        for existing_key, instance in self.gpu_instances.items():
+            existing_gpus = set(self._validate_and_parse_gpu_id(existing_key))
+            
+            # 检查是否有重叠
+            overlap = requested_gpus & existing_gpus
+            if overlap:
+                raise LifecycleError(
+                    f"GPU conflict: GPU(s) {overlap} already in use by '{existing_key}' "
+                    f"(model: '{instance.model_id}')"
+                )
+    
+    def get_port_for_gpu(self, gpu_id: Union[int, str]) -> int:
+        """
+        根据GPU ID获取端口号,使用主GPU(第一个)的端口
+        
+        Args:
+            gpu_id: GPU ID
+            
+        Returns:
+            端口号
+        """
+        gpu_list = self._validate_and_parse_gpu_id(gpu_id)
+        primary_gpu = gpu_list[0]
+        
+        # 端口映射: GPU 0->8081, GPU 1->8088
+        if primary_gpu == 0:
+            return self.config_manager.llama_cpp.gpu_ports.gpu0
+        elif primary_gpu == 1:
+            return self.config_manager.llama_cpp.gpu_ports.gpu1
+        else:
+            # 未来扩展: GPU 2->8095, GPU 3->8102, etc.
+            return 8081 + (primary_gpu * 7)
+    
+    def get_gpu_for_model(self, model_id: str) -> Optional[str]:
+        """
+        查找哪个GPU加载了指定模型
+        
+        Args:
+            model_id: 模型ID
+            
+        Returns:
+            GPU ID字符串，如果模型未加载则返回None
+        """
+        for gpu_id, instance in self.gpu_instances.items():
+            if instance.model_id == model_id:
+                return gpu_id
+        return None
+    
+    async def load_model(
+        self, 
+        model_id: str, 
+        gpu_id: Union[int, str] = 0
+    ) -> LoadModelResponse:
+        """
+        在指定GPU上加载模型
+        
+        Args:
+            model_id: 模型ID
+            gpu_id: GPU ID (0, 1, 或 "both")
+            
+        Returns:
+            LoadModelResponse
+            
+        Raises:
+            LifecycleError: 加载失败
+        """
+        logger.info(f"Loading model '{model_id}' on GPU {gpu_id}")
+        
+        try:
+            # 标准化GPU ID
+            normalized_gpu_id = self._normalize_gpu_id(gpu_id)
+            
+            # 获取模型配置
             model_config = self.config_manager.models.get_model(model_id)
             if model_config is None:
                 raise LifecycleError(f"Model not found: {model_id}")
             
-            # Check if a model is already loaded
-            if self.current_model is not None:
-                raise LifecycleError(
-                    f"Model '{self.current_model.id}' is already loaded. "
-                    f"Unload it first or use switch_model()."
-                )
+            # 检查GPU冲突
+            self._check_gpu_conflicts(normalized_gpu_id)
             
-            # Start llama-server with the model
+            # 确定端口
+            port = self.get_port_for_gpu(normalized_gpu_id)
+            
+            # 创建llama.cpp配置副本，使用特定端口
+            llama_config = self.config_manager.llama_cpp.model_copy(deep=True)
+            llama_config.default_port = port
+            
+            # 创建新的适配器实例
+            adapter = LlamaCppAdapter(llama_config)
+            
+            # 启动服务器，传递GPU ID
             try:
-                self.adapter.start_server(
+                adapter.start_server(
                     model_path=model_config.path,
-                    params=model_config.parameters
+                    params=model_config.parameters,
+                    gpu_id=gpu_id
                 )
             except AdapterError as e:
                 raise LifecycleError(f"Failed to start server: {e}")
             
-            # Wait for server to be ready
-            logger.info("Waiting for server to be ready...")
-            ready = await self._wait_for_ready(timeout=60)
+            # 等待服务器就绪
+            logger.info(f"Waiting for server on GPU {gpu_id} to be ready...")
+            ready = await self._wait_for_ready(adapter, timeout=60)
             
             if not ready:
-                # Server didn't become ready in time
-                self.adapter.stop_server()
+                adapter.stop_server()
                 raise LifecycleError("Server failed to become ready within timeout")
             
-            # Update state
-            self.current_model = model_config
-            self.load_time = datetime.now()
+            # 创建并存储GPU实例
+            instance = GpuInstance(
+                gpu_id=normalized_gpu_id,
+                port=port,
+                adapter=adapter,
+                model_id=model_id,
+                model_config=model_config,
+                load_time=datetime.now()
+            )
+            self.gpu_instances[normalized_gpu_id] = instance
             
-            status = await self.get_status()
+            # 获取状态
+            status = await self._get_instance_status(instance)
             
-            logger.info(f"Model '{model_id}' loaded successfully")
+            logger.info(f"Model '{model_id}' loaded successfully on GPU {normalized_gpu_id}")
             
             return LoadModelResponse(
                 success=True,
                 model_id=model_id,
-                message=f"Model '{model_config.name}' loaded successfully",
+                message=f"Model '{model_config.name}' loaded on GPU {normalized_gpu_id}",
                 status=status
             )
             
@@ -118,97 +260,113 @@ class ModelLifecycleManager:
             logger.error(f"Unexpected error loading model: {e}")
             raise LifecycleError(f"Failed to load model: {e}")
     
-    async def unload_model(self) -> UnloadModelResponse:
+    async def unload_model(self, gpu_id: Union[int, str]) -> UnloadModelResponse:
         """
-        Unload the currently loaded model.
+        从指定GPU卸载模型
         
+        Args:
+            gpu_id: GPU ID
+            
         Returns:
-            UnloadModelResponse with operation result
+            UnloadModelResponse
         """
-        logger.info("Unloading current model")
+        logger.info(f"Unloading model from GPU {gpu_id}")
         
-        if self.current_model is None:
+        # 标准化GPU ID
+        normalized_gpu_id = self._normalize_gpu_id(gpu_id)
+        
+        # 检查该GPU是否有模型
+        if normalized_gpu_id not in self.gpu_instances:
             return UnloadModelResponse(
                 success=True,
-                message="No model loaded"
+                message=f"No model loaded on GPU {normalized_gpu_id}"
             )
         
-        model_id = self.current_model.id
+        instance = self.gpu_instances[normalized_gpu_id]
+        model_id = instance.model_id
         
         try:
-            # Stop the server
-            success = self.adapter.stop_server(graceful=True, timeout=30)
+            # 停止服务器
+            success = instance.adapter.stop_server(graceful=True, timeout=30)
             
             if not success:
-                raise LifecycleError("Failed to stop server")
+                raise LifecycleError(f"Failed to stop server on GPU {gpu_id}")
             
-            # Clear state
-            self.current_model = None
-            self.load_time = None
+            # 从字典中移除
+            del self.gpu_instances[normalized_gpu_id]
             
-            logger.info(f"Model '{model_id}' unloaded successfully")
+            logger.info(f"Model '{model_id}' unloaded from GPU {normalized_gpu_id}")
             
             return UnloadModelResponse(
                 success=True,
-                message=f"Model '{model_id}' unloaded successfully"
+                message=f"Model '{model_id}' unloaded from GPU {normalized_gpu_id}"
             )
             
         except Exception as e:
-            logger.error(f"Error unloading model: {e}")
+            logger.error(f"Error unloading model from GPU {gpu_id}: {e}")
             raise LifecycleError(f"Failed to unload model: {e}")
     
-    async def switch_model(self, new_model_id: str) -> SwitchModelResponse:
+    async def switch_model(
+        self, 
+        new_model_id: str, 
+        gpu_id: Union[int, str] = 0
+    ) -> SwitchModelResponse:
         """
-        Switch from current model to a new model.
+        在指定GPU上切换模型
         
         Args:
-            new_model_id: ID of the model to switch to
+            new_model_id: 新模型ID
+            gpu_id: GPU ID
             
         Returns:
-            SwitchModelResponse with operation result
+            SwitchModelResponse
         """
-        old_model_id = self.current_model.id if self.current_model else None
-        
-        logger.info(f"Switching model from '{old_model_id}' to '{new_model_id}'")
+        logger.info(f"Switching to model '{new_model_id}' on GPU {gpu_id}")
         
         try:
-            # Validate new model exists
+            # 标准化GPU ID
+            normalized_gpu_id = self._normalize_gpu_id(gpu_id)
+            
+            # 验证新模型存在
             new_model_config = self.config_manager.models.get_model(new_model_id)
             if new_model_config is None:
                 raise LifecycleError(f"Model not found: {new_model_id}")
             
-            # If same model, just return current status
-            if old_model_id == new_model_id:
-                status = await self.get_status()
-                return SwitchModelResponse(
-                    success=True,
-                    old_model_id=old_model_id,
-                    new_model_id=new_model_id,
-                    message=f"Model '{new_model_id}' is already loaded",
-                    status=status
-                )
+            # 获取旧模型ID
+            old_model_id = None
+            if normalized_gpu_id in self.gpu_instances:
+                old_model_id = self.gpu_instances[normalized_gpu_id].model_id
+                
+                # 如果是同一个模型，直接返回
+                if old_model_id == new_model_id:
+                    status = await self._get_instance_status(self.gpu_instances[normalized_gpu_id])
+                    return SwitchModelResponse(
+                        success=True,
+                        old_model_id=old_model_id,
+                        new_model_id=new_model_id,
+                        message=f"Model '{new_model_id}' is already loaded on GPU {normalized_gpu_id}",
+                        status=status
+                    )
+                
+                # 卸载旧模型
+                logger.info(f"Unloading current model '{old_model_id}' from GPU {normalized_gpu_id}")
+                await self.unload_model(normalized_gpu_id)
+                await asyncio.sleep(1)  # 短暂暁停确保清理完成
             
-            # Unload current model if any
-            if self.current_model is not None:
-                logger.info(f"Unloading current model: {old_model_id}")
-                await self.unload_model()
-                # Brief pause to ensure clean shutdown
-                await asyncio.sleep(1)
-            
-            # Load new model
-            logger.info(f"Loading new model: {new_model_id}")
-            load_response = await self.load_model(new_model_id)
+            # 加载新模型
+            logger.info(f"Loading new model '{new_model_id}' on GPU {normalized_gpu_id}")
+            load_response = await self.load_model(new_model_id, normalized_gpu_id)
             
             if not load_response.success:
                 raise LifecycleError(f"Failed to load new model: {load_response.message}")
             
-            logger.info(f"Successfully switched to model '{new_model_id}'")
+            logger.info(f"Successfully switched to model '{new_model_id}' on GPU {normalized_gpu_id}")
             
             return SwitchModelResponse(
                 success=True,
                 old_model_id=old_model_id,
                 new_model_id=new_model_id,
-                message=f"Successfully switched to model '{new_model_config.name}'",
+                message=f"Successfully switched to '{new_model_config.name}' on GPU {normalized_gpu_id}",
                 status=load_response.status
             )
             
@@ -218,85 +376,154 @@ class ModelLifecycleManager:
             logger.error(f"Unexpected error switching model: {e}")
             raise LifecycleError(f"Failed to switch model: {e}")
     
-    def get_current_model(self) -> Optional[ModelConfig]:
-        """
-        Get the currently loaded model configuration.
-        
-        Returns:
-            ModelConfig if a model is loaded, None otherwise
-        """
-        return self.current_model
-    
     async def get_status(self) -> ModelStatus:
         """
-        Get current model status.
+        获取主GPU的模型状态（向后兼容）
         
         Returns:
-            ModelStatus with current state
+            ModelStatus
         """
-        status = ModelStatus(
-            model_id=self.current_model.id if self.current_model else None,
-            model_name=self.current_model.name if self.current_model else None,
-            status=self.adapter.get_status(),
-            loaded_at=self.load_time,
-            memory_usage_mb=None,  # TODO: Implement memory tracking
-            uptime_seconds=self.adapter.get_uptime_seconds(),
-            pid=self.adapter.get_pid(),
-            host=self.config_manager.llama_cpp.default_host,
-            port=self.config_manager.llama_cpp.default_port,
-        )
+        # 优先返回GPU 0的状态，如果没有则返回"0,1"或GPU 1
+        for gpu_key in ["0", "0,1", "1"]:
+            if gpu_key in self.gpu_instances:
+                instance = self.gpu_instances[gpu_key]
+                return await self._get_instance_status(instance)
         
-        return status
+        # 没有任何模型加载
+        return ModelStatus(
+            model_id=None,
+            model_name=None,
+            status=ProcessStatus.STOPPED,
+            loaded_at=None,
+            memory_usage_mb=None,
+            uptime_seconds=None,
+            pid=None,
+            host=self.config_manager.llama_cpp.default_host,
+            port=self.config_manager.llama_cpp.gpu_ports.gpu0,
+        )
+    
+    async def get_gpu_status(
+        self, 
+        gpu_id: Union[int, str]
+    ) -> Optional[GpuInstanceStatus]:
+        """
+        获取特定GPU的状态
+        
+        Args:
+            gpu_id: GPU ID
+            
+        Returns:
+            GpuInstanceStatus或None
+        """
+        normalized_gpu_id = self._normalize_gpu_id(gpu_id)
+        
+        if normalized_gpu_id not in self.gpu_instances:
+            return None
+        
+        instance = self.gpu_instances[normalized_gpu_id]
+        
+        return GpuInstanceStatus(
+            gpu_id=normalized_gpu_id,
+            port=instance.port,
+            model_id=instance.model_id,
+            model_name=instance.model_config.name,
+            status=instance.adapter.get_status(),
+            loaded_at=instance.load_time,
+            uptime_seconds=instance.adapter.get_uptime_seconds(),
+            pid=instance.adapter.get_pid()
+        )
+    
+    async def get_all_gpu_statuses(self) -> AllGpuStatus:
+        """
+        获取所有GPU的状态
+        
+        Returns:
+            AllGpuStatus
+        """
+        return AllGpuStatus(
+            gpu0=await self.get_gpu_status("0"),
+            gpu1=await self.get_gpu_status("1"),
+            both=await self.get_gpu_status("0,1")
+        )
+    
+    async def _get_instance_status(self, instance: GpuInstance) -> ModelStatus:
+        """
+        从GPU实例获取ModelStatus
+        
+        Args:
+            instance: GPU实例
+            
+        Returns:
+            ModelStatus
+        """
+        return ModelStatus(
+            model_id=instance.model_id,
+            model_name=instance.model_config.name,
+            status=instance.adapter.get_status(),
+            loaded_at=instance.load_time,
+            memory_usage_mb=None,  # TODO: 实现内存跟踪
+            uptime_seconds=instance.adapter.get_uptime_seconds(),
+            pid=instance.adapter.get_pid(),
+            host=self.config_manager.llama_cpp.default_host,
+            port=instance.port,
+        )
+    
+    def get_current_model(self) -> Optional[ModelConfig]:
+        """
+        获取当前加载的模型配置（向后兼容）
+        返回第一个找到的模型
+        
+        Returns:
+            ModelConfig或None
+        """
+        for gpu_key in ["0", "0,1", "1"]:
+            if gpu_key in self.gpu_instances:
+                return self.gpu_instances[gpu_key].model_config
+        return None
     
     async def healthcheck(self) -> HealthCheckResponse:
         """
-        Check if the current model is healthy.
+        检查是否有健康的模型实例（向后兼容）
         
         Returns:
-            HealthCheckResponse with health status
+            HealthCheckResponse
         """
-        status = self.adapter.get_status()
+        # 检查所有GPU实例
+        for instance in self.gpu_instances.values():
+            status = instance.adapter.get_status()
+            
+            if status == ProcessStatus.RUNNING:
+                is_healthy = await instance.adapter.is_healthy()
+                uptime = instance.adapter.get_uptime_seconds()
+                
+                if is_healthy:
+                    return HealthCheckResponse(
+                        healthy=True,
+                        status=status,
+                        message=f"Model '{instance.model_id}' on GPU {instance.gpu_id} is healthy",
+                        uptime_seconds=uptime
+                    )
         
-        if status != ProcessStatus.RUNNING:
-            return HealthCheckResponse(
-                healthy=False,
-                status=status,
-                message=f"Server is {status.value}",
-                uptime_seconds=None
-            )
-        
-        # Check if server is responding
-        is_healthy = await self.adapter.is_healthy()
-        
-        uptime = self.adapter.get_uptime_seconds()
-        
-        if is_healthy:
-            return HealthCheckResponse(
-                healthy=True,
-                status=status,
-                message="Server is healthy and responding",
-                uptime_seconds=uptime
-            )
-        else:
-            return HealthCheckResponse(
-                healthy=False,
-                status=status,
-                message="Server is running but not responding to health checks",
-                uptime_seconds=uptime
-            )
+        # 没有健康的实例
+        return HealthCheckResponse(
+            healthy=False,
+            status=ProcessStatus.STOPPED,
+            message="No healthy model instances running",
+            uptime_seconds=None
+        )
     
     def get_available_models(self) -> List[ModelInfo]:
         """
-        Get list of available models.
+        获取可用模型列表
         
         Returns:
-            List of ModelInfo for all configured models
+            ModelInfo列表
         """
         models = []
-        current_id = self.current_model.id if self.current_model else None
+        loaded_model_ids = {inst.model_id for inst in self.gpu_instances.values()}
         
         for model_config in self.config_manager.models.models:
-            is_loaded = (model_config.id == current_id)
+            is_loaded = model_config.id in loaded_model_ids
             status = "loaded" if is_loaded else "available"
             
             models.append(ModelInfo(
@@ -314,56 +541,71 @@ class ModelLifecycleManager:
     
     def get_model_ids(self) -> List[str]:
         """
-        Get list of available model IDs.
+        获取可用模型ID列表
         
         Returns:
-            List of model IDs
+            模型ID列表
         """
         return self.config_manager.models.get_model_ids()
     
-    async def _wait_for_ready(self, timeout: int = 60) -> bool:
+    async def _wait_for_ready(
+        self, 
+        adapter: LlamaCppAdapter, 
+        timeout: int = 60
+    ) -> bool:
         """
-        Wait for llama-server to be ready.
+        等待llama-server就绪
         
         Args:
-            timeout: Maximum time to wait in seconds
+            adapter: 适配器实例
+            timeout: 超时时间（秒）
             
         Returns:
-            True if server became ready, False if timeout
+            是否就绪
         """
         start_time = asyncio.get_event_loop().time()
-        check_interval = 1.0  # Check every second
+        check_interval = 1.0
         
         while (asyncio.get_event_loop().time() - start_time) < timeout:
-            # Check if server is healthy
-            is_healthy = await self.adapter.is_healthy()
+            is_healthy = await adapter.is_healthy()
             
             if is_healthy:
                 logger.info("Server is ready")
                 return True
             
-            # Wait before next check
             await asyncio.sleep(check_interval)
         
         logger.warning(f"Server did not become ready within {timeout}s")
         return False
     
-    async def get_server_logs(self, lines: int = 300) -> List[str]:
+    async def get_server_logs(
+        self, 
+        gpu_id: Union[int, str] = 0, 
+        lines: int = 300
+    ) -> List[str]:
         """
-        Get recent server log lines.
+        获取指定GPU的服务器日志
         
         Args:
-            lines: Number of recent lines to return (default: 300, max: 300)
+            gpu_id: GPU ID
+            lines: 日志行数
             
         Returns:
-            List of log lines
+            日志行列表
         """
-        # Cap at 300 since that's the buffer size
+        normalized_gpu_id = self._normalize_gpu_id(gpu_id)
+        
+        if normalized_gpu_id not in self.gpu_instances:
+            return [f"No model loaded on GPU {normalized_gpu_id}"]
+        
+        instance = self.gpu_instances[normalized_gpu_id]
         lines = min(lines, 300)
-        return self.adapter.get_logs(lines=lines)
+        return instance.adapter.get_logs(lines=lines)
     
     def __del__(self):
-        """Cleanup when lifecycle manager is destroyed."""
-        if self.current_model is not None:
-            logger.warning("LifecycleManager being destroyed with loaded model")
-            # Note: Can't use async in __del__, so we just log
+        """清理时停止所有实例"""
+        if self.gpu_instances:
+            logger.warning(
+                f"LifecycleManager being destroyed with {len(self.gpu_instances)} loaded models"
+            )
+            # 注意：不能在__del__中使用async

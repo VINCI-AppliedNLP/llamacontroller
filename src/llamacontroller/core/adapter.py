@@ -2,6 +2,7 @@
 llama.cpp process adapter for managing llama-server subprocess.
 """
 
+import os
 import subprocess
 import threading
 import time
@@ -9,7 +10,7 @@ import logging
 import signal
 import httpx
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from collections import deque
 
@@ -57,7 +58,8 @@ class LlamaCppAdapter:
         model_path: str,
         params: ModelParameters,
         host: Optional[str] = None,
-        port: Optional[int] = None
+        port: Optional[int] = None,
+        gpu_id: Optional[Union[int, str]] = None
     ) -> bool:
         """
         Start llama-server with specified model and parameters.
@@ -67,6 +69,7 @@ class LlamaCppAdapter:
             params: Model inference parameters
             host: Host to bind to (default from config)
             port: Port to bind to (default from config)
+            gpu_id: GPU identifier (0, 1, or "both") for CUDA_VISIBLE_DEVICES
             
         Returns:
             True if started successfully, False otherwise
@@ -103,12 +106,36 @@ class LlamaCppAdapter:
                 logger.info("llama-server will use API key authentication")
             
             # Add all parameters using the new flexible system
-            # This handles both old-style and new cli_params
             cmd.extend(params.get_cli_arguments())
             
-            logger.info(f"Starting llama-server: {' '.join(cmd)}")
+            # Set up environment variables for GPU selection
+            env = None
+            if gpu_id is not None:
+                env = dict(os.environ)  # Copy current environment
+                
+                # Normalize gpu_id to string format
+                if isinstance(gpu_id, int):
+                    gpu_id_str = str(gpu_id)
+                else:
+                    gpu_id_str = str(gpu_id)
+                
+                # Handle legacy "both" format
+                if gpu_id_str == "both":
+                    logger.warning("gpu_id='both' is deprecated, use '0,1' instead")
+                    gpu_id_str = "0,1"
+                
+                # Set CUDA_VISIBLE_DEVICES directly from gpu_id string
+                env['CUDA_VISIBLE_DEVICES'] = gpu_id_str
+                logger.info(f"Setting CUDA_VISIBLE_DEVICES={gpu_id_str}")
             
-            # Start the process
+            # Log the exact command being executed
+            logger.info(f"Starting llama-server: {' '.join(cmd)}")
+            if env and 'CUDA_VISIBLE_DEVICES' in env:
+                logger.info(f"Environment: CUDA_VISIBLE_DEVICES={env['CUDA_VISIBLE_DEVICES']}")
+            logger.info(f"Full command: {' '.join(cmd)}")
+            logger.info(f"Command as list: {cmd}")
+            
+            # Start the process with environment variables
             self.process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -116,7 +143,8 @@ class LlamaCppAdapter:
                 text=True,
                 bufsize=1,  # Line buffered
                 encoding='utf-8',
-                errors='replace'
+                errors='replace',
+                env=env  # Pass environment variables
             )
             
             self.start_time = datetime.now()

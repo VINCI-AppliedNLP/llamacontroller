@@ -10,9 +10,50 @@
             {% if status and status.model_id and status.model_id == model.id %}
             <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">运行中</span>
             {% else %}
-            <form hx-post="/dashboard/load-model" hx-target="#dashboard-content" hx-disabled-elt="button" class="inline">
+            <form hx-post="/dashboard/load-model" 
+                  hx-target="#dashboard-content" 
+                  hx-disabled-elt="button"
+                  x-data="{ selectedGpus: [] }"
+                  class="inline-block">
                 <input type="hidden" name="model_id" value="{{ model.id }}">
-                <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                <input type="hidden" name="gpu_id" x-model="selectedGpus.join(',') || '0'">
+                
+                <div class="mb-2">
+                    <label class="block text-xs font-medium text-gray-700 mb-1">选择 GPU:</label>
+                    <div class="flex gap-2">
+                        <!-- GPU 0 Toggle -->
+                        <button type="button"
+                                @click="selectedGpus.includes('0') 
+                                        ? selectedGpus = selectedGpus.filter(g => g !== '0')
+                                        : selectedGpus.push('0')"
+                                :class="selectedGpus.includes('0') 
+                                        ? 'bg-blue-500 text-white' 
+                                        : 'bg-gray-200 text-gray-700'"
+                                class="px-3 py-1 rounded-lg text-xs font-medium transition hover:shadow">
+                            GPU 0
+                        </button>
+                        
+                        <!-- GPU 1 Toggle -->
+                        <button type="button"
+                                @click="selectedGpus.includes('1') 
+                                        ? selectedGpus = selectedGpus.filter(g => g !== '1')
+                                        : selectedGpus.push('1')"
+                                :class="selectedGpus.includes('1') 
+                                        ? 'bg-blue-500 text-white' 
+                                        : 'bg-gray-200 text-gray-700'"
+                                class="px-3 py-1 rounded-lg text-xs font-medium transition hover:shadow">
+                            GPU 1
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">
+                        已选择: <span x-text="selectedGpus.length > 0 ? 'GPU ' + selectedGpus.join(',') : '无'"></span>
+                    </p>
+                </div>
+                
+                <button type="submit" 
+                        :disabled="selectedGpus.length === 0"
+                        :class="selectedGpus.length === 0 ? 'bg-gray-300 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'"
+                        class="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white disabled:opacity-50">
                     <span class="load-button-text">加载模型</span>
                     <span class="htmx-indicator ml-2">
                         <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

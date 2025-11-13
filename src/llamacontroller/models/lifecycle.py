@@ -2,7 +2,7 @@
 Pydantic models for model lifecycle management.
 """
 
-from typing import Optional
+from typing import Optional, Union, Dict
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field
@@ -36,9 +36,34 @@ class ModelStatus(BaseModel):
     }
 
 
+class GpuInstanceStatus(BaseModel):
+    """单个GPU实例的状态"""
+    gpu_id: Union[int, str] = Field(..., description="GPU ID (0, 1, 或 'both')")
+    port: int = Field(..., description="服务端口")
+    model_id: Optional[str] = Field(None, description="加载的模型 ID")
+    model_name: Optional[str] = Field(None, description="加载的模型名称")
+    status: ProcessStatus = Field(..., description="进程状态")
+    loaded_at: Optional[datetime] = Field(None, description="加载时间")
+    uptime_seconds: Optional[int] = Field(None, description="运行时长(秒)")
+    pid: Optional[int] = Field(None, description="进程 ID")
+    
+    model_config = {
+        "use_enum_values": True,
+        "protected_namespaces": ()
+    }
+
+class AllGpuStatus(BaseModel):
+    """所有GPU的状态"""
+    gpu0: Optional[GpuInstanceStatus] = Field(None, description="GPU 0 状态")
+    gpu1: Optional[GpuInstanceStatus] = Field(None, description="GPU 1 状态")
+    both: Optional[GpuInstanceStatus] = Field(None, description="Both GPUs 状态")
+    
+    model_config = {"protected_namespaces": ()}
+
 class LoadModelRequest(BaseModel):
     """加载模型请求"""
     model_id: str = Field(..., description="要加载的模型 ID")
+    gpu_id: Union[int, str] = Field(0, description="GPU ID (0, 1, 或 'both')")
     
     model_config = {"protected_namespaces": ()}
 
@@ -59,9 +84,14 @@ class UnloadModelResponse(BaseModel):
     message: str = Field(..., description="结果消息")
 
 
+class UnloadModelRequest(BaseModel):
+    """卸载模型请求"""
+    gpu_id: Union[int, str] = Field(..., description="GPU ID (0, 1, 或 'both')")
+
 class SwitchModelRequest(BaseModel):
     """切换模型请求"""
     model_id: str = Field(..., description="要切换到的模型 ID")
+    gpu_id: Union[int, str] = Field(0, description="GPU ID (0, 1, 或 'both')")
     
     model_config = {"protected_namespaces": ()}
 
