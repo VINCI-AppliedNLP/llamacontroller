@@ -1,3 +1,5 @@
+from llamacontroller._version import __version__
+
 """
 Pydantic models for configuration validation.
 """

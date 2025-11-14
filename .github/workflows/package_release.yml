@@ -1,0 +1,77 @@
+# 自动打包并发布 release 的 GitHub Actions Workflow
+name: package_release
+on:
+  workflow_dispatch:
+    inputs:
+      bump_version:
+        description: "if bump version before release"
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Get current version
+        id: get_version
+        run: |
+          VERSION_FILE="src/llamacontroller/_version.py"
+          VERSION="0.1.0"
+          if [ -f "$VERSION_FILE" ]; then
+            VERSION=$(grep -E "__version__ ?= ?" "$VERSION_FILE" | sed -E 's/__version__ ?= ?[\"\']([0-9]+\.[0-9]+\.[0-9]+)[\"\']/\1/')
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump version if needed
+        if: ${{ github.event.inputs.bump_version == 'true' }}
+        run: |
+          VERSION_FILE="src/llamacontroller/_version.py"
+          VERSION="${{ steps.get_version.outputs.version }}"
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          MINOR=$(echo $VERSION | cut -d. -f2)
+          PATCH=$(echo $VERSION | cut -d. -f3)
+          PATCH=$((PATCH+1))
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          sed -i "s/__version__ ?= ?[\"\']$VERSION[\"\']/__version__ = \"$NEW_VERSION\"/" $VERSION_FILE
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git add $VERSION_FILE
+          git commit -m "Bump version to $NEW_VERSION"
+          git push
+
+      - name: Prepare release name
+        id: prep_release
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          RELEASE_NAME="llamacontroller_${VERSION}"
+          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Create zip excluding unnecessary files
+        run: |
+          zip -r ${{ steps.prep_release.outputs.release_name }}.zip . \
+            -x "design/*" "work_log/*" "logs/*" "tests/*" "docs/*" "src/llamacontroller.egg-info/*" ".git/*"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.prep_release.outputs.release_name }}
+          name: ${{ steps.prep_release.outputs.release_name }}
+          files: ${{ steps.prep_release.outputs.release_name }}.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
