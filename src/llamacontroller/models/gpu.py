@@ -22,6 +22,9 @@ class GpuProcessInfoResponse(BaseModel):
 
 class GpuStatusResponse(BaseModel):
     """Single GPU status response."""
+
+    class Config:
+        protected_namespaces = ()
     
     index: int = Field(..., description="GPU index (-1 for CPU)")
     state: GpuState = Field(..., description="GPU state")

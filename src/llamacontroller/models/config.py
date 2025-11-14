@@ -216,6 +216,9 @@ class ModelConfig(BaseModel):
             raise ValueError("Model ID can only contain alphanumeric characters, hyphens, and underscores")
         return v
 
+    class Config:
+        protected_namespaces = ()
+
 class ModelsConfig(BaseModel):
     """Configuration for all models."""
     
@@ -241,6 +244,9 @@ class ModelsConfig(BaseModel):
             duplicates = [id for id in ids if ids.count(id) > 1]
             raise ValueError(f"Duplicate model IDs found: {set(duplicates)}")
         return v
+
+    class Config:
+        protected_namespaces = ()
 
 class AuthUser(BaseModel):
     """User configuration for authentication."""
@@ -284,3 +290,4 @@ class AppConfig(BaseModel):
     class Config:
         """Pydantic configuration."""
         arbitrary_types_allowed = True
+        protected_namespaces = ()
