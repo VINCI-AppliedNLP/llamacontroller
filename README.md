@@ -1,5 +1,7 @@
 # LlamaController
 
+![项目截图](docs/image.png)
+
 A WebUI-based management system for llama.cpp model lifecycle with Ollama API compatibility.
 
 ## 🎯 Project Overview
