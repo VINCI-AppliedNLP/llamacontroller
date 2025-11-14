@@ -45,6 +45,16 @@ jobs:
           bump-type: 'patch'
           current-version: '0.1.0'
 
+      - name: Update _version.py to bumped version
+        shell: bash
+        run: |
+          sed -i "s/__version__ = \".*\"/__version__ = \"${{ steps.bump.outputs.version }}\"/" src/llamacontroller/_version.py
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git add src/llamacontroller/_version.py
+          git commit -m "ci: sync _version.py to ${{ steps.bump.outputs.version }}"
+          git push
+
       - name: Create zip excluding unnecessary files
         run: |
           zip -r llamacontroller_${{ steps.bump.outputs.version }}.zip . \
