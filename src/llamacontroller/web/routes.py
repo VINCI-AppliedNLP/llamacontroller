@@ -203,7 +203,7 @@ async def load_model_ui(
                 "status": status_info,
                 "gpu_statuses": gpu_statuses,
                 "available_models": available_models,
-                "message": f"加载模型失败: {str(e)}",
+                "message": f"Failed to load model: {str(e)}",
                 "message_type": "error",
                 "server_logs": server_logs
             }
@@ -233,7 +233,7 @@ async def unload_model_ui(
                 "status": status_info,
                 "gpu_statuses": gpu_statuses,
                 "available_models": available_models,
-                "message": f"成功从 GPU {gpu_id} 卸载模型",
+                "message": f"Successfully unloaded model from GPU {gpu_id}",
                 "message_type": "success"
             }
         )
@@ -248,7 +248,7 @@ async def unload_model_ui(
                 "status": status_info,
                 "gpu_statuses": gpu_statuses,
                 "available_models": available_models,
-                "message": f"从 GPU {gpu_id} 卸载模型失败: {str(e)}",
+                "message": f"Failed to unload model from GPU {gpu_id}: {str(e)}",
                 "message_type": "error"
             }
         )
@@ -330,7 +330,7 @@ async def create_token_ui(
             try:
                 expires_days_int = int(expires_days)
                 if expires_days_int <= 0 or expires_days_int > 365:
-                    raise ValueError("过期天数必须在 1-365 之间")
+                    raise ValueError("Expiry days must be between 1 and 365")
             except ValueError as e:
                 tokens = crud.get_user_api_tokens(db, user.id)
                 return templates.TemplateResponse(
@@ -338,7 +338,7 @@ async def create_token_ui(
                     {
                         "request": request,
                         "tokens": tokens,
-                        "message": f"无效的过期天数: {str(e)}",
+                        "message": f"Invalid expiry days: {str(e)}",
                         "message_type": "error"
                     }
                 )
@@ -362,7 +362,7 @@ async def create_token_ui(
                 "request": request,
                 "tokens": tokens,
                 "new_token": plain_token,
-                "message": f"令牌 '{token_name}' 创建成功。请立即复制，它不会再次显示！",
+                "message": f"Token '{token_name}' created successfully. Please copy it now, it won't be shown again!",
                 "message_type": "success"
             }
         )

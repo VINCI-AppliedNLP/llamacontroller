@@ -1,5 +1,5 @@
 """
-认证 API 端点
+Authentication API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
@@ -18,12 +18,12 @@ from llamacontroller.models.auth import (
     SessionInfo
 )
 
-router = APIRouter(prefix="/api/v1/auth", tags=["认证"])
+router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
 
 def get_client_info(request: Request) -> tuple[str | None, str | None]:
     """
-    获取客户端信息
+    Get client information
     
     Returns:
         tuple[ip_address, user_agent]
@@ -40,17 +40,17 @@ async def login(
     db: Session = Depends(get_db)
 ):
     """
-    用户登录
+    User login
     
-    - **username**: 用户名
-    - **password**: 密码
+    - **username**: Username
+    - **password**: Password
     """
     ip_address, user_agent = get_client_info(request)
     
-    # 创建认证服务
+    # Create authentication service
     auth_service = AuthService(db)
     
-    # 认证用户
+    # Authenticate user
     success, error_msg, user = auth_service.authenticate_user(
         username=login_req.username,
         password=login_req.password,
@@ -63,7 +63,7 @@ async def login(
             detail=error_msg
         )
     
-    # 创建会话
+    # Create session
     response = auth_service.create_session(
         user=user,
         ip_address=ip_address,
@@ -80,16 +80,16 @@ async def logout(
     db: Session = Depends(get_db)
 ):
     """
-    用户登出
+    User logout
     
-    需要通过 Cookie 或 X-Session-ID 头提供会话 ID
+    Requires session ID via Cookie or X-Session-ID header
     """
     ip_address, _ = get_client_info(request)
     
-    # 创建认证服务
+    # Create authentication service
     auth_service = AuthService(db)
     
-    # 登出
+    # Logout
     success = auth_service.logout(
         session_id=current_session.session_id,
         ip_address=ip_address
@@ -98,10 +98,10 @@ async def logout(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="登出失败"
+            detail="Logout failed"
         )
     
-    return MessageResponse(message="登出成功")
+    return MessageResponse(message="Logout successful")
 
 
 @router.get("/me", response_model=CurrentUserResponse)
@@ -110,9 +110,9 @@ async def get_current_user_info(
     current_session: DBSession = Depends(get_current_session)
 ):
     """
-    获取当前用户信息
+    Get current user information
     
-    需要通过 Cookie 或 X-Session-ID 头提供会话 ID
+    Requires session ID via Cookie or X-Session-ID header
     """
     return CurrentUserResponse(
         user=UserResponse.from_orm(current_user),
@@ -128,19 +128,19 @@ async def change_password(
     db: Session = Depends(get_db)
 ):
     """
-    修改密码
+    Change password
     
-    需要通过 Cookie 或 X-Session-ID 头提供会话 ID
+    Requires session ID via Cookie or X-Session-ID header
     
-    - **old_password**: 旧密码
-    - **new_password**: 新密码（至少 8 个字符）
+    - **old_password**: Old password
+    - **new_password**: New password (at least 8 characters)
     """
     ip_address, _ = get_client_info(request)
     
-    # 创建认证服务
+    # Create authentication service
     auth_service = AuthService(db)
     
-    # 修改密码
+    # Change password
     success, error_msg = auth_service.change_password(
         user=current_user,
         old_password=password_req.old_password,
@@ -154,4 +154,4 @@ async def change_password(
             detail=error_msg
         )
     
-    return MessageResponse(message="密码修改成功")
+    return MessageResponse(message="Password changed successfully")

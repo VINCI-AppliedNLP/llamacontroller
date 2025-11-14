@@ -1,67 +1,67 @@
 """
-认证相关的 Pydantic 模型
+Authentication-related Pydantic models
 """
 from pydantic import BaseModel, Field, validator
 from typing import Optional, List
 from datetime import datetime
 
-# ==================== 请求模型 ====================
+# ==================== Request Models ====================
 
 class LoginRequest(BaseModel):
-    """登录请求"""
-    username: str = Field(..., min_length=1, max_length=50, description="用户名")
-    password: str = Field(..., min_length=1, description="密码")
+    """Login request"""
+    username: str = Field(..., min_length=1, max_length=50, description="Username")
+    password: str = Field(..., min_length=1, description="Password")
 
 class ChangePasswordRequest(BaseModel):
-    """修改密码请求"""
-    old_password: str = Field(..., min_length=1, description="旧密码")
-    new_password: str = Field(..., min_length=8, description="新密码")
+    """Change password request"""
+    old_password: str = Field(..., min_length=1, description="Old password")
+    new_password: str = Field(..., min_length=8, description="New password")
     
     @validator('new_password')
     def validate_password_strength(cls, v):
-        """验证密码强度"""
+        """Validate password strength"""
         if len(v) < 8:
-            raise ValueError("密码至少需要 8 个字符")
+            raise ValueError("Password must be at least 8 characters")
         return v
 
 class CreateUserRequest(BaseModel):
-    """创建用户请求（管理员）"""
-    username: str = Field(..., min_length=1, max_length=50, description="用户名")
-    password: str = Field(..., min_length=8, description="密码")
-    role: str = Field(default="user", description="角色：admin 或 user")
+    """Create user request (admin)"""
+    username: str = Field(..., min_length=1, max_length=50, description="Username")
+    password: str = Field(..., min_length=8, description="Password")
+    role: str = Field(default="user", description="Role: admin or user")
     
     @validator('role')
     def validate_role(cls, v):
-        """验证角色"""
+        """Validate role"""
         if v not in ["admin", "user"]:
-            raise ValueError("角色必须是 admin 或 user")
+            raise ValueError("Role must be admin or user")
         return v
 
 class UpdateUserRequest(BaseModel):
-    """更新用户请求（管理员）"""
-    is_active: Optional[bool] = Field(None, description="是否激活")
-    role: Optional[str] = Field(None, description="角色")
+    """Update user request (admin)"""
+    is_active: Optional[bool] = Field(None, description="Is active")
+    role: Optional[str] = Field(None, description="Role")
     
     @validator('role')
     def validate_role(cls, v):
-        """验证角色"""
+        """Validate role"""
         if v is not None and v not in ["admin", "user"]:
-            raise ValueError("角色必须是 admin 或 user")
+            raise ValueError("Role must be admin or user")
         return v
 
 class CreateTokenRequest(BaseModel):
-    """创建 API 令牌请求"""
-    name: str = Field(..., min_length=1, max_length=100, description="令牌名称")
-    expires_days: Optional[int] = Field(None, gt=0, le=365, description="过期天数（1-365）")
+    """Create API token request"""
+    name: str = Field(..., min_length=1, max_length=100, description="Token name")
+    expires_days: Optional[int] = Field(None, gt=0, le=365, description="Expiry days (1-365)")
 
 class UpdateTokenRequest(BaseModel):
-    """更新令牌请求"""
-    is_active: bool = Field(..., description="是否激活")
+    """Update token request"""
+    is_active: bool = Field(..., description="Is active")
 
-# ==================== 响应模型 ====================
+# ==================== Response Models ====================
 
 class UserResponse(BaseModel):
-    """用户响应"""
+    """User response"""
     id: int
     username: str
     role: str
@@ -75,17 +75,17 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 class LoginResponse(BaseModel):
-    """登录响应"""
+    """Login response"""
     user: UserResponse
     session_id: str
     expires_at: datetime
-    message: str = "登录成功"
+    message: str = "Login successful"
 
 class TokenResponse(BaseModel):
-    """令牌响应"""
+    """Token response"""
     id: int
     name: str
-    token: Optional[str] = None  # 仅在创建时返回原始令牌
+    token: Optional[str] = None  # Only returns raw token on creation
     created_at: datetime
     last_used_at: Optional[datetime]
     expires_at: Optional[datetime]
@@ -95,17 +95,17 @@ class TokenResponse(BaseModel):
         from_attributes = True
 
 class TokenListResponse(BaseModel):
-    """令牌列表响应"""
+    """Token list response"""
     tokens: List[TokenResponse]
     total: int
 
 class UserListResponse(BaseModel):
-    """用户列表响应"""
+    """User list response"""
     users: List[UserResponse]
     total: int
 
 class SessionInfo(BaseModel):
-    """会话信息"""
+    """Session information"""
     session_id: str
     user_id: int
     created_at: datetime
@@ -116,15 +116,15 @@ class SessionInfo(BaseModel):
         from_attributes = True
 
 class CurrentUserResponse(BaseModel):
-    """当前用户信息响应"""
+    """Current user information response"""
     user: UserResponse
     session: SessionInfo
 
 class AuditLogResponse(BaseModel):
-    """审计日志响应"""
+    """Audit log response"""
     id: int
     user_id: Optional[int]
-    username: Optional[str]  # 从 user 关系填充
+    username: Optional[str]  # Populated from user relationship
     action: str
     resource: Optional[str]
     details: Optional[str]
@@ -136,19 +136,19 @@ class AuditLogResponse(BaseModel):
         from_attributes = True
 
 class AuditLogListResponse(BaseModel):
-    """审计日志列表响应"""
+    """Audit log list response"""
     logs: List[AuditLogResponse]
     total: int
 
-# ==================== 通用响应 ====================
+# ==================== Common Responses ====================
 
 class MessageResponse(BaseModel):
-    """通用消息响应"""
+    """Common message response"""
     message: str
     success: bool = True
 
 class ErrorResponse(BaseModel):
-    """错误响应"""
+    """Error response"""
     error: str
     detail: Optional[str] = None
     success: bool = False

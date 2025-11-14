@@ -1,5 +1,5 @@
 """
-认证服务
+Authentication service
 """
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -12,15 +12,15 @@ from llamacontroller.auth.utils import hash_password, verify_password
 from llamacontroller.models.auth import LoginResponse, UserResponse, SessionInfo
 
 class AuthService:
-    """认证服务类"""
+    """Authentication service class"""
     
     def __init__(self, db: Session, session_timeout: int = 3600):
         """
-        初始化认证服务
+        Initialize authentication service
         
         Args:
-            db: 数据库会话
-            session_timeout: 会话超时时间（秒），默认 1 小时
+            db: Database session
+            session_timeout: Session timeout in seconds, default 1 hour
         """
         self.db = db
         self.session_timeout = session_timeout
@@ -32,47 +32,47 @@ class AuthService:
         ip_address: Optional[str] = None
     ) -> tuple[bool, Optional[str], Optional[User]]:
         """
-        认证用户
+        Authenticate user
         
         Args:
-            username: 用户名
-            password: 密码
-            ip_address: IP 地址
+            username: Username
+            password: Password
+            ip_address: IP address
         
         Returns:
-            tuple[bool, Optional[str], Optional[User]]: (成功?, 错误消息?, 用户对象?)
+            tuple[bool, Optional[str], Optional[User]]: (Success?, Error message?, User object?)
         """
-        # 查找用户
+        # Find user
         user = crud.get_user_by_username(self.db, username)
         
-        # 记录审计日志
+        # Record audit log audit log
         crud.create_audit_log(
             self.db,
             action="login_attempt",
-            success=False,  # 先假设失败，成功时会创建新记录
+            success=False,  # Assume failure first, will create new record if successful
             user_id=user.id if user else None,
             ip_address=ip_address
         )
         
-        # 用户不存在
+        # User doesn't exist
         if user is None:
-            return False, "用户名或密码错误", None
+            return False, "Incorrect username or password", None
         
-        # 检查用户是否激活
+        # Check if user is active
         if not user.is_active:
-            return False, "账户已被禁用", None
+            return False, "Account is disabled", None
         
-        # 检查用户是否被锁定
+        # Check if user is locked
         if user.is_locked():
-            return False, f"账户已锁定，请稍后再试", None
+            return False, f"Account is locked, please try again later", None
         
-        # 验证密码
+        # Verify password
         if not verify_password(password, user.password_hash):
-            # 增加失败次数
+            # Increment failure count
             crud.increment_failed_login(self.db, user)
-            return False, "用户名或密码错误", None
+            return False, "Incorrect username or password", None
         
-        # 认证成功，重置失败次数
+        # Authentication successful, reset failure count
         crud.reset_failed_login(self.db, user)
         
         return True, None, user
@@ -84,17 +84,17 @@ class AuthService:
         user_agent: Optional[str] = None
     ) -> LoginResponse:
         """
-        创建会话
+        Create session
         
         Args:
-            user: 用户对象
-            ip_address: IP 地址
+            user: User object
+            ip_address: IP address
             user_agent: User-Agent
         
         Returns:
-            LoginResponse: 登录响应
+            LoginResponse: Login response
         """
-        # 创建会话
+        # Create sessionte session
         session = crud.create_session(
             self.db,
             user_id=user.id,
@@ -103,7 +103,7 @@ class AuthService:
             user_agent=user_agent
         )
         
-        # 记录成功登录
+        # Record successful login
         crud.create_audit_log(
             self.db,
             action="login",
@@ -113,7 +113,7 @@ class AuthService:
             details=json.dumps({"user_agent": user_agent})
         )
         
-        # 构建响应
+        # Build response
         return LoginResponse(
             user=UserResponse.from_orm(user),
             session_id=session.session_id,
@@ -122,23 +122,23 @@ class AuthService:
     
     def verify_session(self, session_id: str) -> Optional[User]:
         """
-        验证会话
+        Verify session
         
         Args:
-            session_id: 会话 ID
+            session_id: Session ID
         
         Returns:
-            User 如果会话有效，否则 None
+            User if session is valid, otherwise None
         """
         session = crud.verify_session(self.db, session_id)
         
         if session is None:
             return None
         
-        # 获取用户
+        # Get user
         user = crud.get_user_by_id(self.db, session.user_id)
         
-        # 检查用户是否激活
+        # Check if user is active
         if user is None or not user.is_active:
             return None
         
@@ -146,21 +146,21 @@ class AuthService:
     
     def logout(self, session_id: str, ip_address: Optional[str] = None) -> bool:
         """
-        登出（删除会话）
+        Logout (delete session)
         
         Args:
-            session_id: 会话 ID
-            ip_address: IP 地址
+            session_id: Session ID
+            ip_address: IP address
         
         Returns:
-            bool: 是否成功
+            bool: Whether successful
         """
         session = crud.get_session_by_id(self.db, session_id)
         
         if session is None:
             return False
         
-        # 记录登出
+        # Record logout
         crud.create_audit_log(
             self.db,
             action="logout",
@@ -169,30 +169,30 @@ class AuthService:
             ip_address=ip_address
         )
         
-        # 删除会话
+        # Delete session
         crud.delete_session(self.db, session)
         
         return True
     
     def verify_api_token(self, raw_token: str) -> Optional[User]:
         """
-        验证 API 令牌
+        Verify API token
         
         Args:
-            raw_token: 原始令牌字符串
+            raw_token: Raw token string
         
         Returns:
-            User 如果令牌有效，否则 None
+            User if token is valid, otherwise None
         """
         token = crud.verify_api_token(self.db, raw_token)
         
         if token is None:
             return None
         
-        # 获取用户
+        # Get user
         user = crud.get_user_by_id(self.db, token.user_id)
         
-        # 检查用户是否激活
+        # Check if user is active
         if user is None or not user.is_active:
             return None
         
@@ -206,18 +206,18 @@ class AuthService:
         ip_address: Optional[str] = None
     ) -> tuple[bool, Optional[str]]:
         """
-        修改密码
+        Change password
         
         Args:
-            user: 用户对象
-            old_password: 旧密码
-            new_password: 新密码
-            ip_address: IP 地址
+            user: User object
+            old_password: Old password
+            new_password: New password
+            ip_address: IP address
         
         Returns:
-            tuple[bool, Optional[str]]: (成功?, 错误消息?)
+            tuple[bool, Optional[str]]: (Success?, Error message?)
         """
-        # 验证旧密码
+        # Verify old password
         if not verify_password(old_password, user.password_hash):
             crud.create_audit_log(
                 self.db,
@@ -225,18 +225,18 @@ class AuthService:
                 success=False,
                 user_id=user.id,
                 ip_address=ip_address,
-                details="旧密码错误"
+                details="Incorrect old password"
             )
-            return False, "旧密码错误"
+            return False, "Incorrect old password"
         
-        # 哈希新密码
+        # Hash new password
         new_password_hash = hash_password(new_password)
         
-        # 更新密码
+        # Update password
         user.password_hash = new_password_hash
         crud.update_user(self.db, user)
         
-        # 记录审计日志
+        # Record audit log
         crud.create_audit_log(
             self.db,
             action="change_password",
@@ -256,33 +256,33 @@ class AuthService:
         ip_address: Optional[str] = None
     ) -> User:
         """
-        创建用户
+        Create user
         
         Args:
-            username: 用户名
-            password: 密码
-            role: 角色
-            created_by_user_id: 创建者用户 ID
-            ip_address: IP 地址
+            username: Username
+            password: Password
+            role: Role
+            created_by_user_id: Creator user ID
+            ip_address: IP address
         
         Returns:
-            User: 新用户对象
+            User: New user object
         """
-        # 检查用户名是否已存在
+        # Check if username already exists
         existing_user = crud.get_user_by_username(self.db, username)
         if existing_user is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="用户名已存在"
+                detail="Username already exists"
             )
         
-        # 哈希密码
+        # Hash password
         password_hash = hash_password(password)
         
-        # 创建用户
+        # Create user
         user = crud.create_user(self.db, username, password_hash, role)
         
-        # 记录审计日志
+        # Record audit log
         crud.create_audit_log(
             self.db,
             action="create_user",

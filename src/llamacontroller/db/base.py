@@ -1,5 +1,5 @@
 """
-数据库基础配置
+Database basic configuration
 """
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
@@ -7,31 +7,31 @@ from sqlalchemy.orm import sessionmaker
 from typing import Generator
 import os
 
-# 数据库 URL
+# Database URL
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "sqlite:///./data/llamacontroller.db"
 )
 
-# 创建数据库引擎
+# Create database engine
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
-    echo=False  # 设置为 True 可以看到 SQL 语句
+    echo=False  # Set to True to see SQL statements
 )
 
-# 创建会话工厂
+# Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# 创建声明式基类
+# Create declarative base class
 Base = declarative_base()
 
 
 def get_db() -> Generator:
     """
-    获取数据库会话的依赖注入函数
+    Dependency injection function for database session
     
-    用于 FastAPI 依赖注入:
+    For FastAPI dependency injection:
     ```python
     @app.get("/")
     def read_root(db: Session = Depends(get_db)):
@@ -47,20 +47,20 @@ def get_db() -> Generator:
 
 def init_db() -> None:
     """
-    初始化数据库（创建所有表）
+    Initialize database (create all tables)
     """
-    # 导入所有模型以确保它们被注册
+    # Import all models to ensure they are registered
     from llamacontroller.db import models  # noqa: F401
     
-    # 创建所有表
+    # Create all tables
     Base.metadata.create_all(bind=engine)
 
 
 def reset_db() -> None:
     """
-    重置数据库（删除并重新创建所有表）
+    Reset database (drop and recreate all tables)
     
-    警告: 这会删除所有数据！仅用于开发/测试
+    Warning: This will delete all data! For development/testing only
     """
     from llamacontroller.db import models  # noqa: F401
     

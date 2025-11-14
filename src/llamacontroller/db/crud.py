@@ -1,5 +1,5 @@
 """
-数据库 CRUD 操作
+Database CRUD operations
 """
 from sqlalchemy.orm import Session
 from typing import Optional, List
@@ -12,19 +12,19 @@ from llamacontroller.db.models import User, APIToken, Session as DBSession, Audi
 # ==================== User CRUD ====================
 
 def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
-    """通过 ID 获取用户"""
+    """Get user by ID"""
     return db.query(User).filter(User.id == user_id).first()
 
 def get_user_by_username(db: Session, username: str) -> Optional[User]:
-    """通过用户名获取用户"""
+    """Get user by username"""
     return db.query(User).filter(User.username == username).first()
 
 def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[User]:
-    """获取用户列表"""
+    """Get list of users"""
     return db.query(User).offset(skip).limit(limit).all()
 
 def create_user(db: Session, username: str, password_hash: str, role: str = "user") -> User:
-    """创建新用户"""
+    """Create new user"""
     user = User(
         username=username,
         password_hash=password_hash,
@@ -36,29 +36,29 @@ def create_user(db: Session, username: str, password_hash: str, role: str = "use
     return user
 
 def update_user(db: Session, user: User) -> User:
-    """更新用户"""
+    """Update user"""
     user.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(user)
     return user
 
 def delete_user(db: Session, user: User) -> None:
-    """删除用户"""
+    """Delete user"""
     db.delete(user)
     db.commit()
 
 def increment_failed_login(db: Session, user: User, lockout_duration: int = 300) -> User:
     """
-    增加失败登录次数
+    Increment failed login count
     
     Args:
-        db: 数据库会话
-        user: 用户对象
-        lockout_duration: 锁定时长（秒），默认 5 分钟
+        db: Database session
+        user: User object
+        lockout_duration: Lockout duration in seconds, default 5 minutes
     """
     user.failed_login_attempts += 1
     
-    # 如果失败次数达到 5 次，锁定账户
+    # Lock account if failed attempts reach 5
     if user.failed_login_attempts >= 5:
         user.locked_until = datetime.utcnow() + timedelta(seconds=lockout_duration)
     
@@ -67,7 +67,7 @@ def increment_failed_login(db: Session, user: User, lockout_duration: int = 300)
     return user
 
 def reset_failed_login(db: Session, user: User) -> User:
-    """重置失败登录次数"""
+    """Reset failed login count"""
     user.failed_login_attempts = 0
     user.locked_until = None
     db.commit()
@@ -77,15 +77,15 @@ def reset_failed_login(db: Session, user: User) -> User:
 # ==================== API Token CRUD ====================
 
 def get_api_token_by_id(db: Session, token_id: int) -> Optional[APIToken]:
-    """通过 ID 获取令牌"""
+    """Get token by ID"""
     return db.query(APIToken).filter(APIToken.id == token_id).first()
 
 def get_api_token_by_hash(db: Session, token_hash: str) -> Optional[APIToken]:
-    """通过哈希值获取令牌"""
+    """Get token by hash value"""
     return db.query(APIToken).filter(APIToken.token_hash == token_hash).first()
 
 def get_user_api_tokens(db: Session, user_id: int) -> List[APIToken]:
-    """获取用户的所有令牌"""
+    """Get all tokens for a user"""
     return db.query(APIToken).filter(APIToken.user_id == user_id).all()
 
 def create_api_token(
@@ -96,34 +96,34 @@ def create_api_token(
     custom_token: Optional[str] = None
 ) -> tuple[APIToken, str]:
     """
-    创建 API 令牌
+    Create API token
     
     Args:
-        db: 数据库会话
-        user_id: 用户 ID
-        name: 令牌名称
-        expires_days: 过期天数（可选）
-        custom_token: 自定义令牌值（可选，如果不提供则自动生成）
+        db: Database session
+        user_id: User ID
+        name: Token name
+        expires_days: Expiry days (optional)
+        custom_token: Custom token value (optional, auto-generated if not provided)
     
     Returns:
-        tuple[APIToken, str]: (数据库记录, 原始令牌)
+        tuple[APIToken, str]: (database record, raw token)
     """
-    # 使用自定义令牌或生成随机令牌
+    # Use custom token or generate random token
     if custom_token:
         raw_token = custom_token
     else:
-        # 生成推荐长度的令牌（32字节 = 43字符 base64）
+        # Generate recommended length token (32 bytes = 43 chars base64)
         raw_token = secrets.token_urlsafe(32)
     
-    # 计算哈希值用于存储
+    # Calculate hash for storage
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     
-    # 计算过期时间
+    # Calculate expiration time
     expires_at = None
     if expires_days is not None:
         expires_at = datetime.utcnow() + timedelta(days=expires_days)
     
-    # 创建数据库记录
+    # Create database record
     api_token = APIToken(
         user_id=user_id,
         token_hash=token_hash,
@@ -139,59 +139,59 @@ def create_api_token(
 
 def generate_token(length: int = 32) -> str:
     """
-    生成推荐的随机令牌
+    Generate recommended random token
     
     Args:
-        length: 字节长度（默认 32 字节 = ~43 字符）
+        length: Byte length (default 32 bytes = ~43 characters)
     
     Returns:
-        str: URL 安全的 base64 编码令牌
+        str: URL-safe base64 encoded token
     """
     return secrets.token_urlsafe(length)
 
 def update_api_token_last_used(db: Session, token: APIToken) -> APIToken:
-    """更新令牌最后使用时间"""
+    """Update token last used time"""
     token.last_used_at = datetime.utcnow()
     db.commit()
     db.refresh(token)
     return token
 
 def update_api_token(db: Session, token: APIToken) -> APIToken:
-    """更新令牌"""
+    """Update token"""
     db.commit()
     db.refresh(token)
     return token
 
 def delete_api_token(db: Session, token: APIToken) -> None:
-    """删除令牌"""
+    """Delete token"""
     db.delete(token)
     db.commit()
 
 def verify_api_token(db: Session, raw_token: str) -> Optional[APIToken]:
     """
-    验证 API 令牌
+    Verify API token
     
     Args:
-        db: 数据库会话
-        raw_token: 原始令牌字符串
+        db: Database session
+        raw_token: Raw token string
     
     Returns:
-        APIToken 如果有效，否则 None
+        APIToken if valid, otherwise None
     """
-    # 计算哈希值
+    # Calculate hash
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     
-    # 查找令牌
+    # Find token
     token = get_api_token_by_hash(db, token_hash)
     
     if token is None:
         return None
     
-    # 检查是否有效
+    # Check if valid
     if not token.is_valid():
         return None
     
-    # 更新最后使用时间
+    # Update last used time
     update_api_token_last_used(db, token)
     
     return token
@@ -199,11 +199,11 @@ def verify_api_token(db: Session, raw_token: str) -> Optional[APIToken]:
 # ==================== Session CRUD ====================
 
 def get_session_by_id(db: Session, session_id: str) -> Optional[DBSession]:
-    """通过会话 ID 获取会话"""
+    """Get session by session ID"""
     return db.query(DBSession).filter(DBSession.session_id == session_id).first()
 
 def get_user_sessions(db: Session, user_id: int) -> List[DBSession]:
-    """获取用户的所有会话"""
+    """Get all sessions for a user"""
     return db.query(DBSession).filter(DBSession.user_id == user_id).all()
 
 def create_session(
@@ -213,7 +213,7 @@ def create_session(
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None
 ) -> DBSession:
-    """创建会话"""
+    """Create session"""
     session_id = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + timedelta(seconds=timeout_seconds)
     
@@ -232,12 +232,12 @@ def create_session(
     return session
 
 def delete_session(db: Session, session: DBSession) -> None:
-    """删除会话"""
+    """Delete session"""
     db.delete(session)
     db.commit()
 
 def delete_expired_sessions(db: Session) -> int:
-    """删除所有过期会话"""
+    """Delete all expired sessions"""
     count = db.query(DBSession).filter(
         DBSession.expires_at < datetime.utcnow()
     ).delete()
@@ -246,10 +246,10 @@ def delete_expired_sessions(db: Session) -> int:
 
 def verify_session(db: Session, session_id: str) -> Optional[DBSession]:
     """
-    验证会话
+    Verify session
     
     Returns:
-        DBSession 如果有效，否则 None
+        DBSession if valid, otherwise None
     """
     session = get_session_by_id(db, session_id)
     
@@ -273,7 +273,7 @@ def create_audit_log(
     details: Optional[str] = None,
     ip_address: Optional[str] = None
 ) -> AuditLog:
-    """创建审计日志"""
+    """Create audit log"""
     log = AuditLog(
         user_id=user_id,
         action=action,
@@ -296,7 +296,7 @@ def get_audit_logs(
     skip: int = 0,
     limit: int = 100
 ) -> List[AuditLog]:
-    """获取审计日志"""
+    """Get audit logs"""
     query = db.query(AuditLog)
     
     if user_id is not None:
@@ -308,7 +308,7 @@ def get_audit_logs(
     return query.order_by(AuditLog.created_at.desc()).offset(skip).limit(limit).all()
 
 def delete_old_audit_logs(db: Session, days: int = 90) -> int:
-    """删除旧的审计日志"""
+    """Delete old audit logs"""
     cutoff_date = datetime.utcnow() - timedelta(days=days)
     count = db.query(AuditLog).filter(
         AuditLog.created_at < cutoff_date

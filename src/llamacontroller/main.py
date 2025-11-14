@@ -4,10 +4,12 @@ LlamaController FastAPI application entry point.
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.exceptions import HTTPException
+from fastapi.staticfiles import StaticFiles
 
 from .api import management, ollama, auth, tokens, users
 from .web import routes as web_routes
@@ -57,6 +59,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files directory
+static_dir = Path(__file__).parent / "web" / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Include routers
 # Web UI routes (must be first for / to work)
@@ -132,7 +138,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == status.HTTP_401_UNAUTHORIZED and is_web_ui:
         logger.info(f"Redirecting unauthorized request to login: {request.url.path}")
         return RedirectResponse(
-            url=f"/login?error=请先登录&next={request.url.path}",
+            url=f"/login?error=Please login first&next={request.url.path}",
             status_code=status.HTTP_302_FOUND
         )
     
@@ -165,7 +171,7 @@ async def not_found_handler(request: Request, exc):
     if is_browser_request and not is_api_request:
         logger.info(f"Redirecting 404 request to login: {request.url.path}")
         return RedirectResponse(
-            url="/login?error=页面不存在",
+            url="/login?error=Page not found",
             status_code=status.HTTP_302_FOUND
         )
     

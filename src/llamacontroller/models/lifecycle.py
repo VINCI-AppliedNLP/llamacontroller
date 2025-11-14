@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class ProcessStatus(str, Enum):
-    """llama.cpp 进程状态枚举"""
+    """llama.cpp process status enumeration"""
     STOPPED = "stopped"
     STARTING = "starting"
     RUNNING = "running"
@@ -19,33 +19,33 @@ class ProcessStatus(str, Enum):
 
 
 class ModelStatus(BaseModel):
-    """模型状态信息"""
-    model_id: Optional[str] = Field(None, description="当前加载的模型 ID")
-    model_name: Optional[str] = Field(None, description="当前加载的模型名称")
-    status: ProcessStatus = Field(ProcessStatus.STOPPED, description="进程状态")
-    loaded_at: Optional[datetime] = Field(None, description="模型加载时间")
-    memory_usage_mb: Optional[int] = Field(None, description="内存使用量(MB)")
-    uptime_seconds: Optional[int] = Field(None, description="运行时长(秒)")
-    pid: Optional[int] = Field(None, description="进程 ID")
-    host: Optional[str] = Field(None, description="服务主机")
-    port: Optional[int] = Field(None, description="服务端口")
+    """Model status information"""
+    model_id: Optional[str] = Field(None, description="Currently loaded model ID")
+    model_name: Optional[str] = Field(None, description="Currently loaded model name")
+    status: ProcessStatus = Field(ProcessStatus.STOPPED, description="Process status")
+    loaded_at: Optional[datetime] = Field(None, description="Model load time")
+    memory_usage_mb: Optional[int] = Field(None, description="Memory usage (MB)")
+    uptime_seconds: Optional[int] = Field(None, description="Uptime (seconds)")
+    pid: Optional[int] = Field(None, description="Process ID")
+    host: Optional[str] = Field(None, description="Service host")
+    port: Optional[int] = Field(None, description="Service port")
     
     model_config = {
         "use_enum_values": True,
-        "protected_namespaces": ()  # 允许 model_ 前缀
+        "protected_namespaces": ()  # Allow model_ prefix
     }
 
 
 class GpuInstanceStatus(BaseModel):
-    """单个GPU实例的状态"""
-    gpu_id: Union[int, str] = Field(..., description="GPU ID (0, 1, 或 'both')")
-    port: int = Field(..., description="服务端口")
-    model_id: Optional[str] = Field(None, description="加载的模型 ID")
-    model_name: Optional[str] = Field(None, description="加载的模型名称")
-    status: ProcessStatus = Field(..., description="进程状态")
-    loaded_at: Optional[datetime] = Field(None, description="加载时间")
-    uptime_seconds: Optional[int] = Field(None, description="运行时长(秒)")
-    pid: Optional[int] = Field(None, description="进程 ID")
+    """Single GPU instance status"""
+    gpu_id: Union[int, str] = Field(..., description="GPU ID (0, 1, or 'both')")
+    port: int = Field(..., description="Service port")
+    model_id: Optional[str] = Field(None, description="Loaded model ID")
+    model_name: Optional[str] = Field(None, description="Loaded model name")
+    status: ProcessStatus = Field(..., description="Process status")
+    loaded_at: Optional[datetime] = Field(None, description="Load time")
+    uptime_seconds: Optional[int] = Field(None, description="Uptime (seconds)")
+    pid: Optional[int] = Field(None, description="Process ID")
     
     model_config = {
         "use_enum_values": True,
@@ -53,75 +53,75 @@ class GpuInstanceStatus(BaseModel):
     }
 
 class AllGpuStatus(BaseModel):
-    """所有GPU的状态"""
-    gpu0: Optional[GpuInstanceStatus] = Field(None, description="GPU 0 状态")
-    gpu1: Optional[GpuInstanceStatus] = Field(None, description="GPU 1 状态")
-    both: Optional[GpuInstanceStatus] = Field(None, description="Both GPUs 状态")
+    """Status of all GPUs"""
+    gpu0: Optional[GpuInstanceStatus] = Field(None, description="GPU 0 status")
+    gpu1: Optional[GpuInstanceStatus] = Field(None, description="GPU 1 status")
+    both: Optional[GpuInstanceStatus] = Field(None, description="Both GPUs status")
     
     model_config = {"protected_namespaces": ()}
 
 class LoadModelRequest(BaseModel):
-    """加载模型请求"""
-    model_id: str = Field(..., description="要加载的模型 ID")
-    gpu_id: Union[int, str] = Field(0, description="GPU ID (0, 1, 或 'both')")
+    """Load model request"""
+    model_id: str = Field(..., description="Model ID to load")
+    gpu_id: Union[int, str] = Field(0, description="GPU ID (0, 1, or 'both')")
     
     model_config = {"protected_namespaces": ()}
 
 
 class LoadModelResponse(BaseModel):
-    """加载模型响应"""
-    success: bool = Field(..., description="操作是否成功")
-    model_id: str = Field(..., description="模型 ID")
-    message: str = Field(..., description="结果消息")
-    status: ModelStatus = Field(..., description="模型状态")
+    """Load model response"""
+    success: bool = Field(..., description="Operation success")
+    model_id: str = Field(..., description="Model ID")
+    message: str = Field(..., description="Result message")
+    status: ModelStatus = Field(..., description="Model status")
     
     model_config = {"protected_namespaces": ()}
 
 
 class UnloadModelResponse(BaseModel):
-    """卸载模型响应"""
-    success: bool = Field(..., description="操作是否成功")
-    message: str = Field(..., description="结果消息")
+    """Unload model response"""
+    success: bool = Field(..., description="Operation success")
+    message: str = Field(..., description="Result message")
 
 
 class UnloadModelRequest(BaseModel):
-    """卸载模型请求"""
-    gpu_id: Union[int, str] = Field(..., description="GPU ID (0, 1, 或 'both')")
+    """Unload model request"""
+    gpu_id: Union[int, str] = Field(..., description="GPU ID (0, 1, or 'both')")
 
 class SwitchModelRequest(BaseModel):
-    """切换模型请求"""
-    model_id: str = Field(..., description="要切换到的模型 ID")
-    gpu_id: Union[int, str] = Field(0, description="GPU ID (0, 1, 或 'both')")
+    """Switch model request"""
+    model_id: str = Field(..., description="Model ID to switch to")
+    gpu_id: Union[int, str] = Field(0, description="GPU ID (0, 1, or 'both')")
     
     model_config = {"protected_namespaces": ()}
 
 
 class SwitchModelResponse(BaseModel):
-    """切换模型响应"""
-    success: bool = Field(..., description="操作是否成功")
-    old_model_id: Optional[str] = Field(None, description="之前的模型 ID")
-    new_model_id: str = Field(..., description="新的模型 ID")
-    message: str = Field(..., description="结果消息")
-    status: ModelStatus = Field(..., description="新模型状态")
+    """Switch model response"""
+    success: bool = Field(..., description="Operation success")
+    old_model_id: Optional[str] = Field(None, description="Previous model ID")
+    new_model_id: str = Field(..., description="New model ID")
+    message: str = Field(..., description="Result message")
+    status: ModelStatus = Field(..., description="New model status")
     
     model_config = {"protected_namespaces": ()}
 
 
 class ModelInfo(BaseModel):
-    """模型信息"""
-    id: str = Field(..., description="模型 ID")
-    name: str = Field(..., description="模型名称")
-    path: str = Field(..., description="模型文件路径")
-    status: str = Field(..., description="模型状态")
-    loaded: bool = Field(..., description="是否已加载")
-    description: str = Field(default="", description="模型描述")
-    parameter_count: str = Field(default="", description="参数量")
-    quantization: str = Field(default="", description="量化类型")
+    """Model information"""
+    id: str = Field(..., description="Model ID")
+    name: str = Field(..., description="Model name")
+    path: str = Field(..., description="Model file path")
+    status: str = Field(..., description="Model status")
+    loaded: bool = Field(..., description="Whether loaded")
+    description: str = Field(default="", description="Model description")
+    parameter_count: str = Field(default="", description="Parameter count")
+    quantization: str = Field(default="", description="Quantization type")
 
 
 class HealthCheckResponse(BaseModel):
-    """健康检查响应"""
-    healthy: bool = Field(..., description="是否健康")
-    status: ProcessStatus = Field(..., description="进程状态")
-    message: str = Field(..., description="状态消息")
-    uptime_seconds: Optional[int] = Field(None, description="运行时长")
+    """Health check response"""
+    healthy: bool = Field(..., description="Whether healthy")
+    status: ProcessStatus = Field(..., description="Process status")
+    message: str = Field(..., description="Status message")
+    uptime_seconds: Optional[int] = Field(None, description="Uptime")

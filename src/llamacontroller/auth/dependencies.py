@@ -1,5 +1,5 @@
 """
-认证相关的 FastAPI 依赖
+Authentication-related FastAPI dependencies
 """
 from fastapi import Depends, HTTPException, status, Request, Cookie, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -16,7 +16,7 @@ from llamacontroller.db import crud
 bearer_scheme = HTTPBearer(auto_error=False)
 
 def get_auth_service(db: Session = Depends(get_db)) -> AuthService:
-    """获取认证服务实例"""
+    """Get authentication service instance"""
     return AuthService(db)
 
 async def verify_api_token(
@@ -24,20 +24,20 @@ async def verify_api_token(
     db: Session = Depends(get_db)
 ) -> User:
     """
-    验证API Token (Bearer token)
+    Verify API Token (Bearer token)
     
-    用于Ollama API端点的认证。
-    期望格式: Authorization: Bearer llc_xxxxx
+    Used for authentication in Ollama API endpoints.
+    Expected format: Authorization: Bearer llc_xxxxx
     
     Args:
-        authorization: Authorization header值
-        db: 数据库会话
+        authorization: Authorization header value
+        db: Database session
         
     Returns:
-        验证通过的User对象
+        Verified User object
         
     Raises:
-        HTTPException: 如果Token无效或过期
+        HTTPException: If token is invalid or expired
     """
     if not authorization:
         raise HTTPException(
@@ -84,36 +84,36 @@ def get_current_user_from_session(
     db: Session = Depends(get_db)
 ) -> User:
     """
-    从会话 Cookie 获取当前用户（用于 Web UI）
+    Get current user from session Cookie (for Web UI)
     
     Raises:
-        HTTPException: 如果会话无效或未认证
+        HTTPException: If session is invalid or not authenticated
     """
-    # 优先从 X-Session-ID 头获取
+    # Prioritize getting from X-Session-ID header
     final_session_id = x_session_id if x_session_id else session_id
     
     if final_session_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="未登录"
+            detail="Not logged in"
         )
     
-    # 验证会话
+    # Verify session
     session = crud.verify_session(db, final_session_id)
     
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="会话已过期，请重新登录"
+            detail="Session expired, please login again"
         )
     
-    # 获取用户
+    # Get user
     user = crud.get_user_by_id(db, session.user_id)
     
     if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户不存在或已禁用"
+            detail="User does not exist or is disabled"
         )
     
     return user
@@ -123,15 +123,15 @@ async def get_current_user_from_token(
     auth: AuthService = Depends(get_auth_service)
 ) -> User:
     """
-    从 Bearer Token 获取当前用户（用于 API）
+    Get current user from Bearer Token (for API)
     
     Raises:
-        HTTPException: 如果令牌无效或未认证
+        HTTPException: If token is invalid or not authenticated
     """
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="需要认证令牌",
+            detail="Authentication token required",
             headers={"WWW-Authenticate": "Bearer"}
         )
     
@@ -140,7 +140,7 @@ async def get_current_user_from_token(
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效的认证令牌",
+            detail="Invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"}
         )
     
@@ -152,21 +152,21 @@ async def get_optional_user_from_session(
     db: Session = Depends(get_db)
 ) -> Optional[User]:
     """
-    从会话 Cookie 获取当前用户（可选，用于 Web UI）
+    Get current user from session Cookie (optional, for Web UI)
     
     Returns:
-        User 如果已认证，否则 None
+        User if authenticated, otherwise None
     """
     if session_id is None:
         return None
     
-    # 验证会话
+    # Verify session
     session = crud.verify_session(db, session_id)
     
     if session is None:
         return None
     
-    # 获取用户
+    # Get user
     user = crud.get_user_by_id(db, session.user_id)
     
     return user if user and user.is_active else None
@@ -177,20 +177,20 @@ async def get_current_user_optional(
     auth: AuthService = Depends(get_auth_service)
 ) -> Optional[User]:
     """
-    获取当前用户（可选，支持会话和令牌）
+    Get current user (optional, supports session and token)
     
-    优先使用会话 Cookie，然后是 Bearer Token
+    Prioritize session Cookie, then Bearer Token
     
     Returns:
-        User 如果已认证，否则 None
+        User if authenticated, otherwise None
     """
-    # 先尝试会话
+    # Try session first
     if session_id is not None:
         user = auth.verify_session(session_id)
         if user is not None:
             return user
     
-    # 再尝试令牌
+    # Then try token
     if credentials is not None:
         user = auth.verify_api_token(credentials.credentials)
         if user is not None:
@@ -204,19 +204,19 @@ async def get_current_user(
     auth: AuthService = Depends(get_auth_service)
 ) -> User:
     """
-    获取当前用户（必需，支持会话和令牌）
+    Get current user (required, supports session and token)
     
-    优先使用会话 Cookie，然后是 Bearer Token
+    Prioritize session Cookie, then Bearer Token
     
     Raises:
-        HTTPException: 如果未认证
+        HTTPException: If not authenticated
     """
     user = await get_current_user_optional(session_id, credentials, auth)
     
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="需要认证"
+            detail="Authentication required"
         )
     
     return user
@@ -225,15 +225,15 @@ async def require_admin(
     current_user: User = Depends(get_current_user)
 ) -> User:
     """
-    要求管理员权限
+    Require admin privileges
     
     Raises:
-        HTTPException: 如果用户不是管理员
+        HTTPException: If user is not an admin
     """
     if not current_user.is_admin():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要管理员权限"
+            detail="Admin privileges required"
         )
     
     return current_user
@@ -245,40 +245,40 @@ async def get_current_session(
     db: Session = Depends(get_db)
 ) -> DBSession:
     """
-    获取当前会话对象
+    Get current session object
     
-    支持从 Cookie 或 X-Session-ID 头获取会话 ID
+    Supports getting session ID from Cookie or X-Session-ID header
     
     Raises:
-        HTTPException: 如果会话无效或未认证
+        HTTPException: If session is invalid or not authenticated
     """
-    # 优先从 X-Session-ID 头获取
+    # Prioritize getting from X-Session-ID header
     if x_session_id is None:
         x_session_id = request.headers.get("X-Session-ID")
     
-    # 如果头中没有，使用 Cookie
+    # If not in header, use Cookie
     final_session_id = x_session_id if x_session_id else session_id
     
     if final_session_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="未提供会话 ID"
+            detail="Session ID not provided"
         )
     
-    # 验证会话
+    # Verify session
     session = crud.verify_session(db, final_session_id)
     
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="会话已过期或无效"
+            detail="Session expired or invalid"
         )
     
     return session
 
 def get_request_info(request: Request) -> dict:
     """
-    获取请求信息（IP 地址、User-Agent 等）
+    Get request information (IP address, User-Agent, etc.)
     
     Returns:
         dict: {"ip_address": str, "user_agent": str}
