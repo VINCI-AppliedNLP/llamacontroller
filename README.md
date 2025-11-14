@@ -15,6 +15,10 @@ LlamaController provides a secure, web-based interface to manage llama.cpp insta
 - **Multi-tenancy Support**: Different tokens for different applications/users
 - **Web Interface**: User-friendly dashboard for model management
 - **Multi-GPU Support**: Load models on GPU 0, GPU 1, or both GPUs (in progress)
+- **GPU Status Detection**: Real-time monitoring of GPU usage, supports idle/model-loaded/occupied-by-others states
+- **Mock GPU Testing**: Supports mock mode for GPU status testing on machines without NVIDIA GPU
+- **Automatic GPU Status Refresh**: Optimized refresh interval (5min), manual refresh on model load/unload
+- **Air-Gap Support**: All web and API resources are served locally, fully offline compatible
 
 ## 📋 Prerequisites
 
@@ -28,7 +32,6 @@ LlamaController provides a secure, web-based interface to manage llama.cpp insta
 ### 1. Set up Conda Environment
 
 ```powershell
-# Create and activate conda environment
 conda create -n llama.cpp python=3.11 -y
 conda activate llama.cpp
 ```
@@ -156,28 +159,39 @@ llamacontroller/
 - [x] Server logs viewer
 - [x] Real-time status updates via HTMX
 
-### 🔄 Phase 6: Multi-GPU Enhancement (40% Complete)
-**Goal**: Support loading models on specific GPUs (GPU 0, GPU 1, or both)
+### 🔄 Phase 6: Multi-GPU Enhancement & GPU Status Detection (40% Complete)
+**Goal**: Support loading models on specific GPUs (GPU 0, GPU 1, or both), with robust GPU status detection
 
 - [x] GPU configuration models (ports: 8081, 8088)
 - [x] Adapter GPU parameter support (tensor-split)
 - [x] Web UI GPU selection interface (toggle buttons)
 - [x] Dashboard GPU status display (per-GPU cards)
+- [x] Real-time GPU status detection (idle/model-loaded/occupied-by-others)
+- [x] Mock GPU testing (configurable mock data for offline/dev environments)
+- [x] Automatic refresh & manual refresh on model load/unload
+- [x] Button disable logic for occupied/running GPUs
 - [ ] Lifecycle manager multi-instance support
 - [ ] API endpoints GPU parameter support
 - [ ] Request routing to correct GPU instance
 - [ ] Comprehensive multi-GPU testing
 
-**Multi-GPU Features:**
+**Multi-GPU & GPU Status Features:**
 - Load different models on different GPUs simultaneously
 - Each GPU uses its own port (GPU 0: 8081, GPU 1: 8088)
 - Support for single GPU or both GPUs with tensor splitting
 - Web UI shows status of each GPU independently
+- GPU status detection: idle, model loaded, occupied by others
+- Mock mode: test GPU status logic without real GPU hardware
+- Dashboard buttons auto-disable for occupied/running GPUs
+- Status refresh interval optimized (5min), manual refresh on actions
 
 ### 📝 Phase 7: Testing & Documentation (70% Complete)
 - [x] Unit tests for core modules
 - [x] Integration tests for API and auth
 - [x] Configuration validation tests
+- [x] GPU status detection tests (`scripts/test_gpu_detection.py`)
+- [x] GPU refresh improvements tests (`scripts/test_gpu_refresh_improvements.py`)
+- [x] Mock GPU scenario tests (`tests/mock/scenarios/`)
 - [x] User documentation
   - [x] QUICKSTART.md
   - [x] API_TEST_REPORT.md
@@ -211,6 +225,10 @@ llamacontroller/
 - [Architecture](design/04-architecture.md)
 - [Implementation Guide](design/05-implementation-guide.md)
 - [Testing Best Practices](design/06-testing-best-practices.md)
+- [GPU Status Detection](docs/GPU_STATUS_DETECTION.md)
+- [GPU Refresh Improvements](docs/GPU_REFRESH_IMPROVEMENTS.md)
+- [GPU Mock Testing](docs/GPU_MOCK_TESTING.md)
+- [Air-Gap Fix](docs/AIR_GAP_FIX.md)
 
 ### Test Reports
 - [API Test Report](docs/API_TEST_REPORT.md)
@@ -221,63 +239,46 @@ llamacontroller/
 ### Using Ollama-Compatible API
 
 ```bash
-# List available models
 curl http://localhost:3000/api/tags
-
-# Generate completion
 curl -X POST http://localhost:3000/api/generate \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "phi-4-reasoning",
-    "prompt": "Explain quantum computing"
-  }'
-
-# Chat completion
+  -d '{"model": "phi-4-reasoning","prompt": "Explain quantum computing"}'
 curl -X POST http://localhost:3000/api/chat \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "phi-4-reasoning",
-    "messages": [
-      {"role": "user", "content": "Hello!"}
-    ]
-  }'
+  -d '{"model": "phi-4-reasoning","messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
 ### Using Management API
 
 ```bash
-# Load a model
 curl -X POST http://localhost:3000/api/v1/models/load \
   -H "Authorization: Bearer YOUR_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"model_id": "phi-4-reasoning"}'
-
-# Get model status
 curl http://localhost:3000/api/v1/models/status \
   -H "Authorization: Bearer YOUR_API_TOKEN"
-
-# Unload model
 curl -X POST http://localhost:3000/api/v1/models/unload \
   -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+### GPU Status API
+
+```bash
+curl -X GET http://localhost:3000/gpu/status
+curl -X GET http://localhost:3000/gpu/count
+curl -X GET http://localhost:3000/gpu/config
 ```
 
 ## 🧪 Running Tests
 
 ```powershell
-# Run all tests
 pytest
-
-# Run specific test file
 pytest tests/test_api.py
-
-# Run with coverage
 pytest --cov=src/llamacontroller --cov-report=html
-
-# Run API tests
 python scripts/test_api_endpoints.py
-
-# Run authentication tests
 python scripts/test_auth_endpoints.py
+python scripts/test_gpu_detection.py
+python scripts/test_gpu_refresh_improvements.py
 ```
 
 ## 🔒 Security Notes
@@ -295,6 +296,8 @@ python scripts/test_auth_endpoints.py
 - Multi-GPU feature requires lifecycle manager refactoring (in progress)
 - No GPU memory monitoring yet (planned)
 - Session timeout is fixed at 1 hour (configurable in future)
+- WebSocket real-time GPU status not yet implemented
+- Air-gap support uses full Tailwind CDN script (consider CLI build for production)
 
 ## 🗺️ Roadmap
 
@@ -303,12 +306,15 @@ python scripts/test_auth_endpoints.py
 - [ ] GPU request routing logic
 - [ ] Multi-GPU integration tests
 - [ ] Multi-GPU documentation
+- [ ] WebSocket real-time GPU status
+- [ ] GPU memory usage chart
 
 ### Medium Term (v1.0)
 - [ ] GPU memory monitoring
 - [ ] Model preloading for faster switching
 - [ ] Advanced rate limiting
 - [ ] Prometheus metrics export
+- [ ] Air-gap Tailwind CSS optimization
 
 ### Long Term (v2.0+)
 - [ ] Multiple models per GPU
@@ -316,6 +322,7 @@ python scripts/test_auth_endpoints.py
 - [ ] Model download from HuggingFace
 - [ ] Automatic GPU selection based on load
 - [ ] Model quantization support
+- [ ] AMD GPU support
 
 ## 🤝 Contributing
 
@@ -357,6 +364,6 @@ For issues and questions:
 
 **Status**: Beta - Core features complete, multi-GPU in progress  
 **Version**: 0.8.0  
-**Last Updated**: 2025-11-13  
+**Last Updated**: 2025-11-14  
 **Python**: 3.8+  
 **License**: TBD
