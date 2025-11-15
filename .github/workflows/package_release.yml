@@ -26,6 +26,9 @@ jobs:
         uses: jianlins/check_bump_version@v1
         with:
           bump-type: 'patch'
+      
+      - name: Use bumped version
+        run: echo "Bumped version is ${{ steps.bump.outputs.version }}"
 
       - name: Update _version.py to bumped version
         shell: bash
@@ -49,8 +52,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: llamacontroller_${{ steps.bump.outputs.version }}
-          name: llamacontroller_${{ steps.bump.outputs.version }}
+          tag_name: ${{ steps.bump.outputs.version }}
+          name: ${{ steps.bump.outputs.version }}
           files: llamacontroller_${{ steps.bump.outputs.version }}.zip
           draft: false
           prerelease: false
