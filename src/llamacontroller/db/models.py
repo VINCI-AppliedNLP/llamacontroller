@@ -13,6 +13,7 @@ from llamacontroller.db.base import Base
 class User(Base):
     """User model"""
     __tablename__ = "users"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
@@ -46,6 +47,7 @@ class User(Base):
 class APIToken(Base):
     """API token model"""
     __tablename__ = "api_tokens"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -76,6 +78,7 @@ class APIToken(Base):
 class Session(Base):
     """Session model"""
     __tablename__ = "sessions"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String(255), unique=True, nullable=False, index=True)
@@ -104,6 +107,7 @@ class Session(Base):
 class AuditLog(Base):
     """Audit log model"""
     __tablename__ = "audit_logs"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Optional, null for anonymous operations

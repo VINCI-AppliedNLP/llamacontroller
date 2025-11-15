@@ -60,10 +60,36 @@ mock_data_path: "tests/mock/scenarios/all_occupied.txt"
 python run.py
 ```
 
-### 方法 2: 使用启动脚本（用于 PATH 方式）
+### 方法 2: 使用 PowerShell 启动脚本（推荐用于 Windows）
 ```powershell
 .\start_with_mock_gpu.ps1
 ```
+
+这个脚本会自动将 mock 目录添加到 PATH 并启动应用。
+
+### 方法 3: 手动添加 Mock 到 PATH（高级用户）
+
+如果你想手动控制 PATH 设置，可以这样做：
+
+**Windows Command Prompt:**
+```cmd
+set PATH=%cd%\tests\mock;%PATH%
+python run.py
+```
+
+**PowerShell:**
+```powershell
+$env:PATH = "$(Get-Location)\tests\mock;$env:PATH"
+python run.py
+```
+
+**Linux/macOS:**
+```bash
+export PATH="$(pwd)/tests/mock:$PATH"
+python run.py
+```
+
+这种方法会在运行期间临时修改 PATH，让系统找到 mock 的 `nvidia-smi.bat` 而不是真实的 nvidia-smi。
 
 ## 验证 GPU 状态
 

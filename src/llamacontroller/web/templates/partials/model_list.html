@@ -15,7 +15,7 @@
                   hx-disabled-elt="button"
                   x-data="{ selectedGpus: [] }"
                   class="inline-block">
-                <input type="hidden" name="model_id" value="{{ model.id }}">
+                <input type="hidden" name="selected_model" value="{{ model.id }}">
                 <input type="hidden" name="gpu_id" x-model="selectedGpus.join(',') || '0'">
                 
                 <div class="mb-2">

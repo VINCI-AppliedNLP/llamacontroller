@@ -67,9 +67,7 @@ class ModelLifecycleManager:
         # Initialize GPU detector
         gpu_config = config_manager.llama_cpp.gpu_detection
         self.gpu_detector = GpuDetector(
-            memory_threshold_mb=gpu_config.memory_threshold_mb,
-            mock_mode=gpu_config.mock_mode,
-            mock_data_path=gpu_config.mock_data_path if gpu_config.mock_mode else None
+            memory_threshold_mb=gpu_config.memory_threshold_mb
         )
         
         logger.info("ModelLifecycleManager initialized with multi-GPU support")
@@ -661,12 +659,17 @@ class ModelLifecycleManager:
         Returns:
             AllGpuStatusResponse with GPU statuses
         """
+        print(f"[DEBUG] detect_gpu_hardware() called in lifecycle.py", flush=True)
+        
         # Update GPU detector with loaded model mappings
         for gpu_id, instance in self.gpu_instances.items():
             self.gpu_detector.set_model_mapping(gpu_id, instance.model_config.name)
+            print(f"[DEBUG] Set model mapping: GPU {gpu_id} -> {instance.model_config.name}", flush=True)
         
         # Detect GPUs
+        print(f"[DEBUG] About to call gpu_detector.detect_gpus()...", flush=True)
         detected_gpus = self.gpu_detector.detect_gpus()
+        print(f"[DEBUG] detect_gpus() returned {len(detected_gpus)} GPUs", flush=True)
         
         # Convert to response format
         gpu_responses = []
@@ -700,23 +703,20 @@ class ModelLifecycleManager:
         return AllGpuStatusResponse(
             gpus=gpu_responses,
             gpu_count=gpu_count,
-            detection_enabled=self.config_manager.llama_cpp.gpu_detection.enabled,
-            mock_mode=self.config_manager.llama_cpp.gpu_detection.mock_mode
+            detection_enabled=self.config_manager.llama_cpp.gpu_detection.enabled
         )
     
     def get_gpu_detection_config(self) -> GpuDetectionConfigResponse:
         """
         Get GPU detection configuration.
-        
+
         Returns:
             GpuDetectionConfigResponse
         """
         config = self.config_manager.llama_cpp.gpu_detection
         return GpuDetectionConfigResponse(
             enabled=config.enabled,
-            memory_threshold_mb=config.memory_threshold_mb,
-            mock_mode=config.mock_mode,
-            mock_data_path=config.mock_data_path
+            memory_threshold_mb=config.memory_threshold_mb
         )
     
     def __del__(self):

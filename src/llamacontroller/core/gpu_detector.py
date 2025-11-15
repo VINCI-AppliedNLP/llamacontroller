@@ -6,6 +6,7 @@ including memory usage and process information. It supports both real GPU
 detection via nvidia-smi and mock mode for testing.
 """
 
+import os
 import subprocess
 import re
 from typing import List, Dict, Optional, Union
@@ -51,29 +52,17 @@ class GpuDetector:
     and determine their status based on memory usage.
     """
     
-    def __init__(
-        self,
-        memory_threshold_mb: int = 30,
-        mock_mode: bool = False,
-        mock_data_path: Optional[str] = None
-    ):
+    def __init__(self, memory_threshold_mb: int = 30):
         """
         Initialize GPU detector.
-        
+
         Args:
             memory_threshold_mb: Memory threshold in MB to consider GPU occupied
-            mock_mode: Enable mock mode for testing without nvidia-smi
-            mock_data_path: Path to mock nvidia-smi output file
         """
         self.memory_threshold_mb = memory_threshold_mb
-        self.mock_mode = mock_mode
-        self.mock_data_path = mock_data_path
         self._gpu_model_mapping: Dict[Union[int, str], str] = {}
-        
-        logger.info(
-            f"GPU Detector initialized: threshold={memory_threshold_mb}MB, "
-            f"mock_mode={mock_mode}"
-        )
+
+        logger.info(f"GPU Detector initialized: threshold={memory_threshold_mb}MB")
     
     def set_model_mapping(self, gpu_id: Union[int, str], model_name: str) -> None:
         """
@@ -121,58 +110,76 @@ class GpuDetector:
     def _run_nvidia_smi(self) -> str:
         """
         Run nvidia-smi command and get output.
-        
+
         Returns:
             nvidia-smi output as string
-            
+
         Raises:
             RuntimeError: If nvidia-smi fails
         """
-        if self.mock_mode:
-            return self._get_mock_output()
+        # Create a copy of environment variables to ensure subprocess inherits them
+        env = os.environ.copy()
+        
+        # Check if we're in test/mock mode by looking for mock directory
+        # This allows tests to work without requiring external PATH setup
+        project_root = Path(__file__).parent.parent.parent.parent
+        mock_dir = project_root / "tests" / "mock"
+        
+        import platform
+        current_path = env.get('PATH', '')
         
         try:
-            result = subprocess.run(
-                ["nvidia-smi"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=True
-            )
+            print(f"[DEBUG] _run_nvidia_smi called")
+            print(f"[DEBUG] Current PATH (first 200 chars): {current_path[:200]}")
+            logger.debug(f"Current PATH: {current_path[:200]}...")
+            
+            # On Windows, use cmd /c to set PATH and run nvidia-smi in the same subprocess
+            if platform.system() == "Windows":
+                if mock_dir.exists() and (mock_dir / "nvidia-smi.bat").exists():
+                    # Set PATH and run nvidia-smi in the same subprocess command
+                    # This ensures the PATH change is effective for the nvidia-smi call
+                    command = f'set "PATH={mock_dir};%PATH%" && nvidia-smi'
+                    print(f"[DEBUG] Mock mode detected, using command: {command}")
+                    logger.debug(f"Mock mode: using command with PATH prepend")
+                else:
+                    command = "nvidia-smi"
+                
+                result = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=True,
+                    shell=True  # Required for command chaining with &&
+                )
+            else:
+                # On Linux/Unix, use standard approach
+                command = "nvidia-smi"
+                result = subprocess.run(
+                    [command],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=True,
+                    env=env
+                )
+            print(f"[DEBUG] nvidia-smi executed successfully")
+            print(f"[DEBUG] nvidia-smi output:\n{result.stdout}")
+            logger.debug(f"nvidia-smi executed successfully")
             return result.stdout
         except subprocess.CalledProcessError as e:
+            print(f"[ERROR] nvidia-smi failed: {e}")
             logger.error(f"nvidia-smi failed: {e}")
             raise RuntimeError(f"nvidia-smi command failed: {e}")
         except subprocess.TimeoutExpired:
+            print(f"[ERROR] nvidia-smi timeout")
             logger.error("nvidia-smi timeout")
             raise RuntimeError("nvidia-smi command timed out")
         except FileNotFoundError:
-            logger.error("nvidia-smi not found")
+            print(f"[ERROR] nvidia-smi not found in PATH")
+            print(f"[ERROR] PATH was: {current_path[:200]}")
+            logger.error(f"nvidia-smi not found. PATH: {current_path[:200]}")
             raise RuntimeError("nvidia-smi not found. NVIDIA drivers may not be installed.")
-    
-    def _get_mock_output(self) -> str:
-        """
-        Get mock nvidia-smi output from file.
-        
-        Returns:
-            Mock nvidia-smi output
-            
-        Raises:
-            RuntimeError: If mock file cannot be read
-        """
-        if not self.mock_data_path:
-            raise RuntimeError("Mock mode enabled but no mock_data_path provided")
-        
-        try:
-            path = Path(self.mock_data_path)
-            if not path.exists():
-                raise RuntimeError(f"Mock data file not found: {self.mock_data_path}")
-            
-            with open(path, 'r', encoding='utf-8') as f:
-                return f.read()
-        except Exception as e:
-            logger.error(f"Failed to read mock data: {e}")
-            raise RuntimeError(f"Failed to read mock data file: {e}")
     
     def parse_gpu_info(self, nvidia_smi_output: str) -> List[GpuInfo]:
         """
@@ -283,9 +290,12 @@ class GpuDetector:
         Returns:
             List of GpuStatus objects, or list with CPU fallback if no GPUs
         """
+        print(f"[DEBUG] detect_gpus() called", flush=True)
         try:
             # Get nvidia-smi output
+            print(f"[DEBUG] Calling _run_nvidia_smi()...", flush=True)
             nvidia_smi_output = self._run_nvidia_smi()
+            print(f'[DEBUG] Got nvidia_smi_output (length: {len(nvidia_smi_output)} chars)', flush=True)
             
             # Parse GPU info and processes
             gpu_info_list = self.parse_gpu_info(nvidia_smi_output)

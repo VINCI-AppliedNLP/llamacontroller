@@ -121,6 +121,42 @@ async def health():
     """Basic health check endpoint."""
     return {"status": "ok"}
 
+@app.get("/test-gpu-detection")
+async def test_gpu_detection():
+    """Test GPU detection without authentication (for debugging)."""
+    print("[DEBUG] /test-gpu-detection endpoint called!")
+    from .api.dependencies import get_lifecycle_manager
+    
+    try:
+        lifecycle = get_lifecycle_manager()
+        print("[DEBUG] Got lifecycle manager, calling detect_gpu_hardware()...")
+        hardware_gpu_status = await lifecycle.detect_gpu_hardware()
+        print(f"[DEBUG] detect_gpu_hardware() completed, gpu_count={hardware_gpu_status.gpu_count}")
+        
+        return {
+            "status": "success",
+            "gpu_count": hardware_gpu_status.gpu_count,
+            "detection_enabled": hardware_gpu_status.detection_enabled,
+            "gpus": [
+                {
+                    "index": gpu.index,
+                    "state": gpu.state,
+                    "model_name": gpu.model_name,
+                    "memory_used": gpu.memory_used,
+                    "memory_total": gpu.memory_total
+                }
+                for gpu in hardware_gpu_status.gpus
+            ]
+        }
+    except Exception as e:
+        print(f"[ERROR] test_gpu_detection failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui_html():
     """Custom Swagger UI using local resources for air-gap environments."""

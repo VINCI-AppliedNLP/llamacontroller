@@ -36,16 +36,13 @@ class GpuStatusResponse(BaseModel):
 
 class AllGpuStatusResponse(BaseModel):
     """Response containing status of all GPUs."""
-    
+
     gpus: List[GpuStatusResponse] = Field(..., description="List of GPU statuses")
     gpu_count: int = Field(..., description="Number of GPUs detected")
     detection_enabled: bool = Field(..., description="Whether GPU detection is enabled")
-    mock_mode: bool = Field(..., description="Whether mock mode is active")
 
 class GpuDetectionConfigResponse(BaseModel):
     """GPU detection configuration response."""
-    
+
     enabled: bool = Field(..., description="Whether GPU detection is enabled")
     memory_threshold_mb: int = Field(..., description="Memory threshold in MB")
-    mock_mode: bool = Field(..., description="Mock mode enabled")
-    mock_data_path: str = Field(..., description="Path to mock data file")

@@ -28,6 +28,9 @@ router = APIRouter(tags=["Web UI"])
 # Initialize templates
 templates = Jinja2Templates(directory="src/llamacontroller/web/templates")
 
+# Debug: Print when this module is loaded
+print("[DEBUG] routes.py module loaded/reloaded!")
+
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def root(
@@ -35,8 +38,11 @@ async def root(
     user: Optional[User] = Depends(get_optional_user_from_session)
 ):
     """Root endpoint - redirect to dashboard if logged in, otherwise to login."""
+    print(f"[DEBUG] / (root) endpoint called, user: {user.username if user else 'None'}")
     if user:
+        print(f"[DEBUG] Redirecting to /dashboard")
         return RedirectResponse(url="/dashboard", status_code=status.HTTP_302_FOUND)
+    print(f"[DEBUG] Redirecting to /login")
     return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
 
 
@@ -47,6 +53,7 @@ async def login_page(
     next: Optional[str] = None
 ):
     """Display login page."""
+    print(f"[DEBUG] /login endpoint called")
     return templates.TemplateResponse(
         "login.html",
         {
@@ -137,14 +144,20 @@ async def dashboard(
     lifecycle_manager: ModelLifecycleManager = Depends(get_lifecycle_manager)
 ):
     """Display main dashboard."""
+    print(f"[DEBUG] /dashboard endpoint called by user: {user.username}")
+    
     # Get current model status
+    print(f"[DEBUG] Getting model status...")
     status_info = await lifecycle_manager.get_status()
     
     # Get GPU statuses (for multi-GPU support)
+    print(f"[DEBUG] Getting GPU statuses...")
     gpu_statuses = await lifecycle_manager.get_all_gpu_statuses()
     
     # Get hardware GPU detection status
+    print(f"[DEBUG] Calling detect_gpu_hardware() from dashboard...")
     hardware_gpu_status = await lifecycle_manager.detect_gpu_hardware()
+    print(f"[DEBUG] detect_gpu_hardware() completed, gpu_count={hardware_gpu_status.gpu_count}")
     
     # Get available models
     available_models = lifecycle_manager.config_manager.models.models
@@ -166,7 +179,7 @@ async def dashboard(
 @router.post("/dashboard/load-model", include_in_schema=False)
 async def load_model_ui(
     request: Request,
-    model_id: str = Form(...),
+    selected_model: str = Form(...),
     gpu_id: str = Form("0"),  # GPU ID from form (comma-separated: "0", "1", or "0,1")
     user: User = Depends(get_current_user_from_session),
     lifecycle_manager: ModelLifecycleManager = Depends(get_lifecycle_manager)
@@ -185,7 +198,7 @@ async def load_model_ui(
                     raise Exception(f"GPU {gpu_idx} is occupied by another process. Please refresh and select an available GPU.")
         
         # Load model on specified GPU
-        result = await lifecycle_manager.load_model(model_id, gpu_id)
+        result = await lifecycle_manager.load_model(selected_model, gpu_id)
         
         # Get updated GPU statuses and available models
         gpu_statuses = await lifecycle_manager.get_all_gpu_statuses()
@@ -284,14 +297,20 @@ async def refresh_dashboard(
     lifecycle_manager: ModelLifecycleManager = Depends(get_lifecycle_manager)
 ):
     """Refresh dashboard content (HTMX endpoint for auto-refresh)."""
+    print(f"[DEBUG] /dashboard/refresh endpoint called by user: {user.username}")
+    
     # Get current model status
+    print(f"[DEBUG] Getting model status...")
     status_info = await lifecycle_manager.get_status()
     
     # Get GPU statuses (for multi-GPU support)
+    print(f"[DEBUG] Getting GPU statuses...")
     gpu_statuses = await lifecycle_manager.get_all_gpu_statuses()
     
     # Get hardware GPU detection status
+    print(f"[DEBUG] Calling detect_gpu_hardware()...")
     hardware_gpu_status = await lifecycle_manager.detect_gpu_hardware()
+    print(f"[DEBUG] detect_gpu_hardware() completed, gpu_count={hardware_gpu_status.gpu_count}")
     
     # Get available models
     available_models = lifecycle_manager.config_manager.models.models
@@ -310,13 +329,13 @@ async def refresh_dashboard(
 @router.post("/dashboard/switch-model", include_in_schema=False)
 async def switch_model_ui(
     request: Request,
-    model_id: str = Form(...),
+    selected_model: str = Form(...),
     user: User = Depends(get_current_user_from_session),
     lifecycle_manager: ModelLifecycleManager = Depends(get_lifecycle_manager)
 ):
     """Switch to a different model (HTMX endpoint)."""
     try:
-        result = await lifecycle_manager.switch_model(model_id)
+        result = await lifecycle_manager.switch_model(selected_model)
         status_info = await lifecycle_manager.get_status()
         
         return templates.TemplateResponse(
@@ -324,7 +343,7 @@ async def switch_model_ui(
             {
                 "request": request,
                 "status": status_info,
-                "message": f"Successfully switched to model: {model_id}",
+                "message": f"Successfully switched to model: {selected_model}",
                 "message_type": "success"
             }
         )
