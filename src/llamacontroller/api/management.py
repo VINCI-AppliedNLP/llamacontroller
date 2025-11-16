@@ -320,3 +320,84 @@ async def get_server_logs(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get server logs: {str(e)}"
         )
+
+@router.get("/process-registry")
+async def get_process_registry(
+    lifecycle: ModelLifecycleManager = Depends(get_lifecycle_manager),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all registered processes.
+    
+    Returns:
+        Dictionary with all registered processes keyed by GPU ID
+    """
+    try:
+        processes = lifecycle.process_registry.get_all_processes()
+        
+        # Convert ProcessRegistryEntry objects to dictionaries
+        return {
+            "processes": {
+                gpu_id: {
+                    "pid": entry.pid,
+                    "model_id": entry.model_id,
+                    "model_name": entry.model_name,
+                    "model_path": entry.model_path,
+                    "gpu_id": entry.gpu_id,
+                    "port": entry.port,
+                    "started_at": entry.started_at.isoformat(),
+                    "command_line": entry.command_line,
+                    "status": entry.status,
+                }
+                for gpu_id, entry in processes.items()
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to get process registry: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get process registry: {str(e)}"
+        )
+
+@router.post("/cleanup-orphaned")
+async def cleanup_orphaned_processes(
+    force: bool = False,
+    lifecycle: ModelLifecycleManager = Depends(get_lifecycle_manager),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Clean up orphaned llama-server processes.
+    
+    Args:
+        force: If True, use SIGKILL immediately. If False, try SIGTERM first.
+        
+    Returns:
+        Dictionary with cleanup results
+    """
+    try:
+        # Find orphaned processes first
+        orphaned_pids = lifecycle.process_registry.find_orphaned_processes()
+        
+        if not orphaned_pids:
+            return {
+                "success": True,
+                "orphaned_pids": [],
+                "killed_count": 0,
+                "message": "No orphaned processes found"
+            }
+        
+        # Clean up orphaned processes
+        killed_count = lifecycle.process_registry.cleanup_orphaned_processes(force=force)
+        
+        return {
+            "success": True,
+            "orphaned_pids": orphaned_pids,
+            "killed_count": killed_count,
+            "message": f"Cleaned up {killed_count} orphaned processes"
+        }
+    except Exception as e:
+        logger.error(f"Failed to cleanup orphaned processes: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cleanup orphaned processes: {str(e)}"
+        )

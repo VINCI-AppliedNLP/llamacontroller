@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from .config import ConfigManager
 from .adapter import LlamaCppAdapter, AdapterError
 from .gpu_detector import GpuDetector, GpuStatus as GpuDetectorStatus, GpuProcessInfo as GpuDetectorProcessInfo
+from .process_registry import ProcessRegistry
 from ..models.config import ModelConfig
 from ..models.lifecycle import (
     ProcessStatus,
@@ -72,7 +73,14 @@ class ModelLifecycleManager:
             memory_threshold_mb=gpu_config.memory_threshold_mb
         )
         
-        logger.info("ModelLifecycleManager initialized with multi-GPU support")
+        # Initialize process registry
+        self.process_registry = ProcessRegistry()
+        self.process_registry.load()
+        
+        # Recover tracked processes on startup
+        self._recover_processes()
+        
+        logger.info("ModelLifecycleManager initialized with multi-GPU support and process registry")
     
     def _validate_and_parse_gpu_id(self, gpu_id: Union[int, str]) -> List[int]:
         """
@@ -125,6 +133,30 @@ class ModelLifecycleManager:
         """
         gpu_list = self._validate_and_parse_gpu_id(gpu_id)
         return ','.join(str(g) for g in gpu_list)
+    
+    def _recover_processes(self) -> None:
+        """Recover tracked processes on startup."""
+        logger.info("Recovering tracked processes from registry...")
+        
+        verification_results = self.process_registry.verify_all_processes()
+        
+        for gpu_id, is_running in verification_results.items():
+            if is_running:
+                entry = self.process_registry.get_process(gpu_id)
+                if entry:
+                    logger.info(
+                        f"Recovered running process: GPU {gpu_id}, "
+                        f"PID {entry.pid}, Model {entry.model_id}"
+                    )
+                    # Note: We track that the process exists but don't reattach to it
+                    # The user will need to manually unload these processes if needed
+            else:
+                logger.warning(f"Process for GPU {gpu_id} is no longer running, cleaning up registry")
+                self.process_registry.unregister_process(gpu_id)
+        
+        recovered_count = len([v for v in verification_results.values() if v])
+        if recovered_count > 0:
+            logger.info(f"Recovered {recovered_count} running processes")
     
     def _check_gpu_conflicts(self, gpu_id: Union[int, str]) -> None:
         """
@@ -292,6 +324,27 @@ class ModelLifecycleManager:
             )
             self.gpu_instances[normalized_gpu_id] = instance
             
+            # Register process in registry
+            pid = adapter.get_pid()
+            if pid:
+                # Get the command line from the adapter (we'll need to add this method)
+                command_line = [
+                    str(llama_config.executable_path),
+                    "-m", model_config.path,
+                    "--host", llama_config.default_host,
+                    "--port", str(port)
+                ]
+                
+                self.process_registry.register_process(
+                    gpu_id=normalized_gpu_id,
+                    pid=pid,
+                    model_id=model_id,
+                    model_name=model_config.name,
+                    model_path=model_config.path,
+                    port=port,
+                    command_line=command_line
+                )
+            
             # Query GPU memory usage after successful load
             memory_info = self._query_gpu_memory(normalized_gpu_id)
             instance.memory_used_mb = memory_info['memory_used']
@@ -351,6 +404,9 @@ class ModelLifecycleManager:
             
             if not success:
                 raise LifecycleError(f"Failed to stop server on GPU {gpu_id}")
+            
+            # Unregister from process registry
+            self.process_registry.unregister_process(normalized_gpu_id)
             
             # Remove from dictionary
             del self.gpu_instances[normalized_gpu_id]
