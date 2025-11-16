@@ -45,6 +45,8 @@ class GpuInstance:
     model_id: str
     model_config: ModelConfig
     load_time: datetime
+    memory_used_mb: int = 0
+    memory_total_mb: int = 0
 
 class ModelLifecycleManager:
     """
@@ -184,6 +186,41 @@ class ModelLifecycleManager:
                 return gpu_id
         return None
     
+    def _query_gpu_memory(self, gpu_id: str) -> Dict[str, int]:
+        """
+        Query GPU memory usage for specific GPU(s).
+        
+        Args:
+            gpu_id: GPU ID string (e.g., "0", "1", "0,1")
+            
+        Returns:
+            Dict with 'memory_used' and 'memory_total' in MiB
+        """
+        try:
+            # Get GPU IDs as list
+            gpu_ids = self._validate_and_parse_gpu_id(gpu_id)
+            
+            # Query GPU detector for current status
+            gpu_statuses = self.gpu_detector.detect_gpus()
+            
+            # For multi-GPU, sum memory usage
+            total_used = 0
+            total_capacity = 0
+            
+            for gid in gpu_ids:
+                gpu_status = next((g for g in gpu_statuses if g.index == gid), None)
+                if gpu_status:
+                    total_used += gpu_status.memory_used
+                    total_capacity += gpu_status.memory_total
+            
+            return {
+                'memory_used': total_used,
+                'memory_total': total_capacity
+            }
+        except Exception as e:
+            logger.warning(f"Failed to query GPU memory for {gpu_id}: {e}")
+            return {'memory_used': 0, 'memory_total': 0}
+    
     async def load_model(
         self, 
         model_id: str, 
@@ -254,6 +291,16 @@ class ModelLifecycleManager:
                 load_time=datetime.now()
             )
             self.gpu_instances[normalized_gpu_id] = instance
+            
+            # Query GPU memory usage after successful load
+            memory_info = self._query_gpu_memory(normalized_gpu_id)
+            instance.memory_used_mb = memory_info['memory_used']
+            instance.memory_total_mb = memory_info['memory_total']
+            
+            logger.info(
+                f"Model '{model_id}' loaded on GPU {normalized_gpu_id}: "
+                f"{memory_info['memory_used']}MiB / {memory_info['memory_total']}MiB"
+            )
             
             # Get status
             status = await self._get_instance_status(instance)
@@ -439,6 +486,9 @@ class ModelLifecycleManager:
         instance = self.gpu_instances[normalized_gpu_id]
         logger.info(f"Found instance for GPU {normalized_gpu_id}: model={instance.model_id}, port={instance.port}")
         
+        # Query current memory (fresh data on every status check)
+        memory_info = self._query_gpu_memory(normalized_gpu_id)
+        
         status_obj = GpuInstanceStatus(
             gpu_id=normalized_gpu_id,
             port=instance.port,
@@ -447,7 +497,9 @@ class ModelLifecycleManager:
             status=instance.adapter.get_status(),
             loaded_at=instance.load_time,
             uptime_seconds=instance.adapter.get_uptime_seconds(),
-            pid=instance.adapter.get_pid()
+            pid=instance.adapter.get_pid(),
+            memory_used_mb=memory_info['memory_used'],
+            memory_total_mb=memory_info['memory_total']
         )
         logger.info(f"Returning status for GPU {normalized_gpu_id}: {status_obj}")
         return status_obj
@@ -458,12 +510,14 @@ class ModelLifecycleManager:
         
         Returns:
             Dictionary mapping GPU ID strings to GpuInstanceStatus
+            Keys are normalized GPU IDs: "0", "1", "0,1", "0,1,2" etc.
         """
         result = {}
         
         # Return status for all loaded GPU instances
+        # Use GPU ID directly as key (no "gpu" prefix)
         for gpu_id in self.gpu_instances.keys():
-            result[f"gpu{gpu_id}"] = await self.get_gpu_status(gpu_id)
+            result[gpu_id] = await self.get_gpu_status(gpu_id)
         
         logger.info(f"get_all_gpu_statuses - returning {len(result)} statuses")
         logger.info(f"get_all_gpu_statuses - keys: {list(result.keys())}")

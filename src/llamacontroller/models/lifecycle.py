@@ -46,6 +46,8 @@ class GpuInstanceStatus(BaseModel):
     loaded_at: Optional[datetime] = Field(None, description="Load time")
     uptime_seconds: Optional[int] = Field(None, description="Uptime (seconds)")
     pid: Optional[int] = Field(None, description="Process ID")
+    memory_used_mb: Optional[int] = Field(None, description="GPU memory used (MiB)")
+    memory_total_mb: Optional[int] = Field(None, description="Total GPU memory (MiB)")
     
     model_config = {
         "use_enum_values": True,

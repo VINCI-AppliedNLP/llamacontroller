@@ -106,7 +106,19 @@ class LlamaCppAdapter:
                 logger.info("llama-server will use API key authentication")
             
             # Add all parameters using the new flexible system
-            cmd.extend(params.get_cli_arguments())
+            model_params = params.get_cli_arguments()
+            cmd.extend(model_params)
+            
+            # Log detailed parameter information
+            logger.info(f"Model parameters from config:")
+            logger.info(f"  - cli_params: {params.cli_params}")
+            if params.n_ctx:
+                logger.info(f"  - n_ctx (deprecated): {params.n_ctx}")
+            if params.n_gpu_layers:
+                logger.info(f"  - n_gpu_layers (deprecated): {params.n_gpu_layers}")
+            if params.n_threads:
+                logger.info(f"  - n_threads (deprecated): {params.n_threads}")
+            logger.info(f"Converted to CLI arguments: {model_params}")
             
             # Set up environment variables for GPU selection
             env = None
