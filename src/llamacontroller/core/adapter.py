@@ -170,10 +170,14 @@ class LlamaCppAdapter:
             self.monitor_thread.start()
             
             # Initialize HTTP client
+            # Use 127.0.0.1 for client connections when server binds to 0.0.0.0
+            # (0.0.0.0 is only valid for server binding, not for client connections)
+            client_host = "127.0.0.1" if host == "0.0.0.0" else host
             self.http_client = httpx.AsyncClient(
-                base_url=f"http://{host}:{port}",
+                base_url=f"http://{client_host}:{port}",
                 timeout=30.0
             )
+            logger.info(f"HTTP client initialized with base_url=http://{client_host}:{port}")
             
             with self._lock:
                 self.status = ProcessStatus.RUNNING
@@ -310,30 +314,44 @@ class LlamaCppAdapter:
             True if healthy, False otherwise
         """
         if self.status != ProcessStatus.RUNNING:
+            logger.debug(f"Health check skipped: status is {self.status}")
             return False
         
         if self.process is None or self.process.poll() is not None:
+            logger.debug("Health check skipped: process is not running")
             return False
         
         # Try to connect to health endpoint
         if self.http_client:
             try:
-                response = await self.http_client.get("/health", timeout=5.0)
+                # Log the exact URL being checked
+                health_url = f"{self.http_client.base_url}/health"
+                logger.debug(f"Checking health at: {health_url}")
+                
+                response = await self.http_client.get("/health", timeout=10.0)
+                
+                logger.debug(f"Health check response: status={response.status_code}, body={response.text[:100]}")
+                
                 if response.status_code == 200:
+                    logger.info(f"Health check PASSED for {health_url}")
                     return True
-                logger.debug(f"Health check returned status {response.status_code}")
+                    
+                logger.warning(f"Health check returned non-200 status: {response.status_code}")
                 return False
+                
             except httpx.ConnectError as e:
                 # Connection refused - server not ready yet
                 logger.debug(f"Health check connection failed (server may still be starting): {e}")
                 return False
             except httpx.TimeoutException as e:
-                # Timeout - server may be loading model
-                logger.debug(f"Health check timeout (server may be loading model): {e}")
+                # Timeout - server may be loading model (includes ReadTimeout)
+                logger.warning(f"Health check timeout after 10s (server may be loading model): {e}")
                 return False
             except Exception as e:
-                logger.debug(f"Health check failed: {e}")
+                logger.warning(f"Health check failed with unexpected error: {type(e).__name__}: {e}")
                 return False
+        else:
+            logger.error("Health check failed: http_client is None")
         
         return False
     
